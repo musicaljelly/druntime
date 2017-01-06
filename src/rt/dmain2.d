@@ -101,11 +101,18 @@ version (Windows)
         // (What? LoadLibrary() is a Windows API call, it shouldn't call rt_init().)
         if (mod is null)
             return mod;
+
+        // !!!
+        // This happens too late here. We call gc_setProxy() manually either from main.exe, or from DllMain.
+        /*
         gcSetFn gcSet = cast(gcSetFn) GetProcAddress(mod, "gc_setProxy");
         if (gcSet !is null)
         {   // BUG: Set proxy, but too late
             gcSet(gc_getProxy());
         }
+        */
+        // !!!
+
         return mod;
     }
 
@@ -177,7 +184,10 @@ extern (C) int rt_init()
         // in other druntime systems.
         _d_initMonoTime();
         gc_init();
-        initStaticDataGC();
+        // !!!
+        // We do the below in proxy.d's gc_init() instead now. That way we can make sure it happens before we set the GC proxy.
+        //initStaticDataGC();
+        // !!!
         lifetime_init();
         rt_moduleCtor();
         rt_moduleTlsCtor();

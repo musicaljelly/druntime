@@ -1322,12 +1322,18 @@ void finalize_array(void* p, size_t size, const TypeInfo_Struct si)
     // Due to the fact that the delete operator calls destructors
     // for arrays from the last element to the first, we maintain
     // compatibility here by doing the same.
+
+    // !!!
+    // Also disabling this finalizer
+    /*
     auto tsize = si.tsize;
     for (auto curP = p + size - tsize; curP >= p; curP -= tsize)
     {
         // call destructor
         si.destroy(curP);
     }
+    */
+    // !!!
 }
 
 // called by the GC
@@ -1335,6 +1341,9 @@ void finalize_struct(void* p, size_t size) nothrow
 {
     debug(PRINTF) printf("finalize_struct(p = %p)\n", p);
 
+    // !!!
+    // Also disabling this finalizer
+    /*
     auto ti = *cast(TypeInfo_Struct*)(p + size - size_t.sizeof);
     try
     {
@@ -1344,6 +1353,8 @@ void finalize_struct(void* p, size_t size) nothrow
     {
         onFinalizeError(ti, e);
     }
+    */
+    // !!!
 }
 
 /**
@@ -1362,6 +1373,12 @@ extern (C) void rt_finalize2(void* p, bool det = true, bool resetMemory = true) 
     {
         if (det || collectHandler is null || collectHandler(cast(Object) p))
         {
+            // !!!
+            // I've disabled actually calling the finalizer, since it was causing crashes when hot reloading.
+            // I'm not entirely happy with the solution, as I don't completely understand what was causing the crashes.
+            // However, it seems to be working fine for now, so we'll see how stable it is as I test stuff out.
+            // For now, don't create any finalizers, since they won't get called!
+            /*
             auto c = *pc;
             do
             {
@@ -1369,6 +1386,8 @@ extern (C) void rt_finalize2(void* p, bool det = true, bool resetMemory = true) 
                     (cast(fp_t) c.destructor)(cast(Object) p); // call destructor
             }
             while ((c = c.base) !is null);
+            */
+            // !!!
         }
 
         if (ppv[1]) // if monitor is not null

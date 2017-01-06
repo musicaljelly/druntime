@@ -30,7 +30,10 @@ extern (C) void* rt_loadLibrary(const char* name);
 /// ditto
 version (Windows) extern (C) void* rt_loadLibraryW(const wchar_t* name);
 /// C interface for Runtime.unloadLibrary, returns 1/0 instead of bool
-extern (C) int rt_unloadLibrary(void* ptr);
+// !!!
+// Made nothrow
+extern (C) int rt_unloadLibrary(void* ptr) nothrow;
+// !!!
 
 /// C interface for Runtime.initialize, returns 1/0 instead of bool
 extern(C) int rt_init();
@@ -232,10 +235,13 @@ struct Runtime
      * Params:
      *  p = A reference to the library to unload.
      */
-    static bool unloadLibrary()(void* p)
+    // !!!
+    // Made nothrow so that main.d's HandleConsoleClose() can call this
+    static bool unloadLibrary()(void* p) nothrow
     {
         return !!rt_unloadLibrary(p);
     }
+    // !!!
 
 
     /**

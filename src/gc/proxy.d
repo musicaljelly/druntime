@@ -30,6 +30,10 @@ private
 
     __gshared GC instance;
     __gshared GC proxiedGC; // used to iterate roots of Windows DLLs
+    // !!!
+    // Used so we can set the proxy before we actually initialize
+    __gshared GC pendingProxyGC;
+    // !!!
 
 }
 
@@ -50,6 +54,17 @@ extern (C)
             fprintf(stderr, "No GC was initialized, please recheck the name of the selected GC ('%.*s').\n", cast(int)config.gc.length, config.gc.ptr);
             exit(1);
         }
+
+        // !!!
+        import rt.memory;
+        initStaticDataGC();
+
+        if (pendingProxyGC !is null)
+        {
+            gc_setProxy(pendingProxyGC);
+            pendingProxyGC = null;
+        }
+        // !!!
 
         // NOTE: The GC must initialize the thread library
         //       before its first collection.
@@ -206,18 +221,29 @@ extern (C)
     {
         void gc_setProxy( GC proxy )
         {
-            foreach(root; instance.rootIter)
+            // !!!
+            if (instance is null)
             {
-                proxy.addRoot(root);
+                // We haven't initialized yet. Just keep track of the proxy we'd like to use for now, then actually call
+                // gc_setProxy() again from gc_init()
+                pendingProxyGC = proxy;
             }
-
-            foreach(range; instance.rangeIter)
+            else
             {
-                proxy.addRange(range.pbot, range.ptop - range.pbot, range.ti);
-            }
+                foreach(root; instance.rootIter)
+                {
+                    proxy.addRoot(root);
+                }
 
-            proxiedGC = instance; // remember initial GC to later remove roots
-            instance = proxy;
+                foreach(range; instance.rangeIter)
+                {
+                    proxy.addRange(range.pbot, range.ptop - range.pbot, range.ti);
+                }
+
+                proxiedGC = instance; // remember initial GC to later remove roots
+                instance = proxy;
+            }
+            // !!!
         }
 
         void gc_clrProxy()
