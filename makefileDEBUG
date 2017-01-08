@@ -2,7 +2,7 @@
 
 MODEL=32
 
-DMD=dmd
+DMD=W:\external\DMD\windows\bin\ddmd.exe
 
 CC=dmc
 
