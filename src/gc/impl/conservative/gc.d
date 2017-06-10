@@ -59,6 +59,33 @@ else                   import core.stdc.stdio : sprintf, printf; // needed to ou
 import core.time;
 alias currTime = MonoTime.currTime;
 
+// !!!
+debug (GameDebug)
+{
+    alias GCLoggingFunc = void function(bool isCollection, string file, uint line, string funcname,
+        string type = null, size_t size = -1, Duration time = Duration.zero) nothrow;
+    GCLoggingFunc g_loggingFunc = null;
+    extern (C) void SetGCLoggingFunction(GCLoggingFunc loggingFunc)
+    {
+        g_loggingFunc = loggingFunc;
+    }
+
+    void GCLoggingHelper(bool isCollection, char* fileCString, uint line, string funcname,
+        string type = null, size_t size = -1, Duration time = Duration.zero) nothrow
+    {
+        import core.stdc.string : strlen;
+        __gshared static disableLogging = 0;
+        string file = cast(string)(fileCString ? fileCString[0 .. strlen(fileCString)] : null);
+        if (g_loggingFunc !is null && disableLogging == 0)
+        {
+            disableLogging++;
+            g_loggingFunc(isCollection, file, line, funcname, type, size, time);
+            disableLogging--;
+        }
+    }
+}
+// !!!
+
 debug(PRINTF_TO_FILE)
 {
     private __gshared MonoTime gcStartTick;
@@ -524,7 +551,11 @@ class ConservativeGC : GC
             sentinel_init(p, size);
             alloc_size = size;
         }
-        gcx.log_malloc(p, size);
+        // !!!
+        //gcx.log_malloc(p, size);
+        debug (GameDebug) GCLoggingHelper(false, ConservativeGC.file, ConservativeGC.line,
+            "bla", "bla", size);
+        // !!!
 
         return p;
     }
@@ -1161,7 +1192,9 @@ class ConservativeGC : GC
                 stats.heapSize, stats.freeSize);
         }
 
-        gcx.log_collect();
+        // !!!
+        //gcx.log_collect();
+        // !!!
         return result;
     }
 
@@ -2364,6 +2397,13 @@ struct Gcx
     {
         MonoTime start, stop, begin;
 
+        // !!!
+        debug (GameDebug)
+        {
+            MonoTime totalStart = currTime;
+        }
+        // !!!
+
         if (config.profile)
         {
             begin = start = currTime;
@@ -2433,6 +2473,19 @@ struct Gcx
         }
 
         updateCollectThresholds();
+
+        // !!!
+        debug (GameDebug)
+        {
+            MonoTime totalEnd = currTime;
+            Duration totalTime = totalEnd - totalStart;
+
+            // Do this here in the more internal fullcollect() because when allocating, we don't call the slighly more external
+            // fullCollect(), we instead call the more internal fullcollect(). So, to capture all collections, we need to be
+            // logging in fullcollect().
+            GCLoggingHelper(true, ConservativeGC.file, ConservativeGC.line, "bla", "bla", 0, totalTime);
+        }
+        // !!!
 
         return freedLargePages + freedSmallPages;
     }

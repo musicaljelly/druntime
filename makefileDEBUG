@@ -9,8 +9,8 @@ CC=dmc
 DOCDIR=doc
 IMPDIR=import
 
-DFLAGS=-m$(MODEL) -conf= -g -gs -release -dip25 -w -Isrc -Iimport
-UDFLAGS=-m$(MODEL) -conf= -g -gs -release -dip25 -w -Isrc -Iimport
+DFLAGS=-m$(MODEL) -conf= -g -gs -debug=GameDebug -release -dip25 -w -Isrc -Iimport
+UDFLAGS=-m$(MODEL) -conf= -g -gs -debug=GameDebug -release -dip25 -w -Isrc -Iimport
 DDOCFLAGS=-conf= -c -w -o- -Isrc -Iimport -version=CoreDdoc
 
 CFLAGS=
