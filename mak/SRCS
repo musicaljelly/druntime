@@ -34,6 +34,7 @@ SRCS=\
 	src\core\stdc\stdint.d \
 	src\core\stdc\stdio.d \
 	src\core\stdc\stdlib.d \
+	src\core\stdc\cstdlib_malloc.d \
 	src\core\stdc\string.d \
 	src\core\stdc\time.d \
 	src\core\stdc\wchar_.d \
@@ -243,6 +244,7 @@ SRCS=\
 	src\gc\proxy.d \
 	src\gc\impl\conservative\gc.d \
 	src\gc\impl\manual\gc.d \
+	src\gc\impl\scrapheap\gc.d \
 	\
 	src\rt\aApply.d \
 	src\rt\aApplyR.d \

@@ -242,6 +242,19 @@ version( Windows )
             try
             {
                 rt_moduleTlsCtor();
+
+                // !!!
+                // See below
+                /*
+                // Now that the thread is running and everything is set up, set the Thread name so that if it was set
+                // before the thread was live, the debugger will now receive the thread name.
+                debug (GameDebug)
+                {
+                    obj.name(obj.name());
+                }
+                */
+                // !!!
+
                 try
                 {
                     obj.run();
@@ -837,6 +850,39 @@ class Thread
         synchronized( this )
         {
             m_name = val;
+
+            // !!!
+            // Note: I don't think mago knows how to deal with the exception properly, so this doesn't work.
+            // Leaving this here for documentation purposes in case mago ever does support it in the future.
+            // If this gets turned on again, I should also turn on the commented out code above in the windows thread entry point.
+            /*
+            // Name the thread for easy identification in the Threads window in the debugger.
+            // See https://docs.microsoft.com/en-us/visualstudio/debugger/how-to-set-a-thread-name-in-native-code
+            // or https://randomascii.wordpress.com/2015/10/26/thread-naming-in-windows-time-for-something-better/
+            // It's crucial that this happens ONLY in debug. Setting thread names for the debugging is weird, it works
+            // by throwing an exception that the debugger then catches. So if there's no debugger attached, we must not
+            // throw the exception or else no one will catch it.
+            debug (GameDebug)
+            {
+                import core.sys.windows.windows : RaiseException, DWORD, LPCSTR, ULONG_PTR;
+
+                const DWORD MS_VC_THREAD_NAME_EXCEPTION = 0x406D1388;
+
+                struct THREADNAME_INFO
+                {
+                align(8):
+                    DWORD dwType;
+                    LPCSTR szName;
+                    DWORD dwThreadID;
+                    DWORD dwFlags;
+                }
+
+                string cString = val.idup ~ "\0";
+                THREADNAME_INFO info = THREADNAME_INFO(0x1000, cString.ptr, id(), 0);
+                RaiseException(MS_VC_THREAD_NAME_EXCEPTION, 0, info.sizeof / ULONG_PTR.sizeof, cast(ULONG_PTR*)&info);
+            }
+            */
+            // !!!
         }
     }
 

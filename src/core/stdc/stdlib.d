@@ -157,13 +157,82 @@ else
 // functions using these already have to be @trusted, allowing them to
 // call @system stuff anyway.
 ///
-void*   malloc(size_t size);
-///
-void*   calloc(size_t nmemb, size_t size);
-///
-void*   realloc(void* ptr, size_t size);
-///
-void    free(void* ptr);
+// !!!
+// Added hooks for malloc, calloc, realloc, and free.
+// This lets runtime code set the function pointer to be used when calling these functions, giving us a mechanism for redirecting
+// malloc and friends across the DLL boundary.
+alias MallocProc = extern (C) void* function(size_t size) nothrow;
+alias CallocProc = extern (C) void* function(size_t nmemb, size_t size) nothrow;
+alias ReallocProc = extern (C) void* function(void* p, size_t size) nothrow;
+alias FreeProc = extern (C) void function(void* p) nothrow;
+
+struct CAllocators
+{
+    MallocProc mallocProc = null;
+    CallocProc callocProc = null;
+    ReallocProc reallocProc = null;
+    FreeProc freeProc = null;
+}
+
+static import core.stdc.cstdlib_malloc;
+
+private
+{
+    __gshared MallocProc _mallocPtr = &core.stdc.cstdlib_malloc.malloc;
+    __gshared CallocProc _callocPtr = &core.stdc.cstdlib_malloc.calloc;
+    __gshared ReallocProc _reallocPtr = &core.stdc.cstdlib_malloc.realloc;
+    __gshared FreeProc _freePtr = &core.stdc.cstdlib_malloc.free;
+}
+
+extern (D):
+void* malloc(size_t size)
+{
+    return _mallocPtr(size);
+}
+
+void* calloc(size_t nmemb, size_t size)
+{
+    return _callocPtr(nmemb, size);
+}
+
+void* realloc(void* ptr, size_t size)
+{
+    return _reallocPtr(ptr, size);
+}
+
+void free(void* ptr)
+{
+    _freePtr(ptr);
+}
+
+void setCAllocators(CAllocators allocators)
+{
+    _mallocPtr = allocators.mallocProc;
+    _callocPtr = allocators.callocProc;
+    _reallocPtr = allocators.reallocProc;
+    _freePtr = allocators.freeProc;
+}
+
+void clearCAllocators()
+{
+    _mallocPtr = &core.stdc.cstdlib_malloc.malloc;
+    _callocPtr = &core.stdc.cstdlib_malloc.calloc;
+    _reallocPtr = &core.stdc.cstdlib_malloc.realloc;
+    _freePtr = &core.stdc.cstdlib_malloc.free;
+}
+
+CAllocators getCAllocators()
+{
+    CAllocators allocators;
+    allocators.mallocProc = _mallocPtr;
+    allocators.callocProc = _callocPtr;
+    allocators.reallocProc = _reallocPtr;
+    allocators.freeProc = _freePtr;
+    return allocators;
+}
+
+extern (C):
+// !!!
 
 ///
 void    abort() @safe;

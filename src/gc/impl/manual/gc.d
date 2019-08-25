@@ -271,4 +271,11 @@ class ManualGC : GC
     {
         return false;
     }
+
+    // !!!
+    // Empty implementations of the scrapheap functions
+    void initializeScrapheapOnThisThread(size_t initScrapheapSize) nothrow {}
+    void reset() nothrow {}
+    size_t getHighWatermark() nothrow {return 0;}
+    // !!!
 }

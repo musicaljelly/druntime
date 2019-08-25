@@ -15,6 +15,9 @@ module gc.proxy;
 
 import gc.impl.conservative.gc;
 import gc.impl.manual.gc;
+// !!!
+import gc.impl.scrapheap.gc;
+// !!!
 import gc.config;
 import gc.gcinterface;
 
@@ -28,25 +31,46 @@ private
     extern (C) void thread_init();
     extern (C) void thread_term();
 
-    __gshared GC instance;
     __gshared GC proxiedGC; // used to iterate roots of Windows DLLs
+    __gshared GC proxiedScrapheap;
+
     // !!!
+    // Stole the name "instance" to refer to the currently set instance. The actual GC instance here is now called "gcInstance"
+    __gshared GC gcInstance;
+    __gshared GC scrapheapInstance;
+
     // Used so we can set the proxy before we actually initialize
     __gshared GC pendingProxyGC;
-    // !!!
+    __gshared GC pendingProxyScrapheap;
 
+    immutable int ALLOCATOR_STACK_SIZE = 128;
+
+    // Note that these are NOT __gshared. This intentionally sits in TLS so that we get one copy per thread.
+    // We use GC* here instead of GC so that we can statically initialize instance and allocatorStack.
+    // If we weren't able to statically initialize them, we would have some Initialize() function that gets called
+    // on each spawned thread to set this up. Which is doubly tricky, because the call has to come from Game.dll, which means
+    // static this() won't cut it (since we spawn our threads from main, meaning the static this() call would come from main).
+    int allocatorStackTop = 0;
+    GC* instance = &gcInstance;
+    GC*[ALLOCATOR_STACK_SIZE] allocatorStack = [0:&gcInstance];
+    // !!!
 }
 
+// NOTE: This whole proxy conceit only works because of polymorphic dispatch.
+// The only reason we end up jumping across the DLL boundary from Game -> main is because we look up our function
+// in the jump table when trying to decide where our function address is based on the runtime type of 'instance'.
+// If you add a call here that doesn't do polymorphic dispatch, it won't work!
 
 extern (C)
 {
-
     void gc_init()
     {
+        // !!!
         config.initialize();
-        ManualGC.initialize(instance);
-        ConservativeGC.initialize(instance);
-        if (instance is null)
+        ManualGC.initialize(gcInstance);
+        ConservativeGC.initialize(gcInstance);
+        ScrapheapGC.initialize(scrapheapInstance);
+        if (gcInstance is null)
         {
             import core.stdc.stdio : fprintf, stderr;
             import core.stdc.stdlib : exit;
@@ -55,16 +79,19 @@ extern (C)
             exit(1);
         }
 
-        // !!!
+        // Briefly set the instance to Game's GC so we can set up roots and ranges.
+        // If we have a pending GC proxy, then we'll very quickly get updated to point properly at that
+        instance = &gcInstance;
+
         import rt.memory;
         initStaticDataGC();
 
         if (pendingProxyGC !is null)
         {
-            gc_setProxy(pendingProxyGC);
+            gc_setProxy(pendingProxyGC, pendingProxyScrapheap);
             pendingProxyGC = null;
+            pendingProxyScrapheap = null;
         }
-        // !!!
 
         // NOTE: The GC must initialize the thread library
         //       before its first collection.
@@ -83,13 +110,16 @@ extern (C)
         // NOTE: Due to popular demand, this has been re-enabled.  It still has
         //       the problems mentioned above though, so I guess we'll see.
 
-        instance.collectNoStack(); // not really a 'collect all' -- still scans
+        // !!!
+        gcInstance.collectNoStack(); // not really a 'collect all' -- still scans
                                     // static data area, roots, and ranges.
 
         thread_term();
 
-        ManualGC.finalize(instance);
-        ConservativeGC.finalize(instance);
+        ManualGC.finalize(gcInstance);
+        ConservativeGC.finalize(gcInstance);
+        ScrapheapGC.finalize(scrapheapInstance);
+        // !!!
     }
 
     void gc_enable()
@@ -212,54 +242,140 @@ extern (C)
         return instance.inFinalizer();
     }
 
+    // !!!
+    // gc_getProxy() should always return the GC, even if the GC is not the current allocator
     GC gc_getProxy() nothrow
     {
-        return instance;
+        return gcInstance;
     }
+
+    GC gc_getScrapheap() nothrow
+    {
+        return scrapheapInstance;
+    }
+    // !!!
 
     export
     {
-        void gc_setProxy( GC proxy )
+        // !!!
+        void gc_setProxy(GC gcProxyToSet, GC scrapheapProxyToSet)
         {
-            // !!!
-            if (instance is null)
+            if (gcInstance is null)
             {
-                // We haven't initialized yet. Just keep track of the proxy we'd like to use for now, then actually call
+                // We haven't initialized yet. Just keep track of the proxies we'd like to use for now, then actually call
                 // gc_setProxy() again from gc_init()
-                pendingProxyGC = proxy;
+                pendingProxyGC = gcProxyToSet;
+                pendingProxyScrapheap = scrapheapProxyToSet;
             }
             else
             {
-                foreach(root; instance.rootIter)
+                foreach(root; gcInstance.rootIter)
                 {
-                    proxy.addRoot(root);
+                    gcProxyToSet.addRoot(root);
                 }
 
-                foreach(range; instance.rangeIter)
+                foreach(range; gcInstance.rangeIter)
                 {
-                    proxy.addRange(range.pbot, range.ptop - range.pbot, range.ti);
+                    gcProxyToSet.addRange(range.pbot, range.ptop - range.pbot, range.ti);
                 }
 
-                proxiedGC = instance; // remember initial GC to later remove roots
-                instance = proxy;
+                proxiedGC = gcInstance; // remember initial GCs to later remove roots
+                proxiedScrapheap = scrapheapInstance;
+
+                gcInstance = gcProxyToSet;
+                scrapheapInstance = scrapheapProxyToSet;
             }
-            // !!!
         }
+        // !!!
 
         void gc_clrProxy()
         {
+            // !!!
             foreach(root; proxiedGC.rootIter)
             {
-                instance.removeRoot(root);
+                gcInstance.removeRoot(root);
             }
 
             foreach(range; proxiedGC.rangeIter)
             {
-                instance.removeRange(range);
+                gcInstance.removeRange(range);
             }
 
-            instance = proxiedGC;
+            gcInstance = proxiedGC;
+            scrapheapInstance = proxiedScrapheap;
+
+            // At this point we should be all the way at the bottom of the allocator stack, and our current allocator should be
+            // the GC. So update the instance to the stored GC so we don't collect from main's GC while we tear down the DLL.
+            instance = &proxiedGC;
+
             proxiedGC = null;
+            proxiedScrapheap = null;
+            // !!!
         }
     }
+
+    // !!!
+    // Call this once on each thread you want a scrapheap for, including the main thread.
+    void InitScrapheapOnThisThread(size_t scrapheapSize)
+    {
+        // Force polymorphic dispatch to happen so we look up the function address in the jump table and end up jumping across the
+        // DLL boundary.
+        (cast(GC)scrapheapInstance).initializeScrapheapOnThisThread(scrapheapSize);
+    }
+
+    void ResetScrapheap()
+    {
+        (cast(GC)scrapheapInstance).reset();
+    }
+
+    size_t GetScrapheapHighWatermark()
+    {
+        return (cast(GC)scrapheapInstance).getHighWatermark();
+    }
+
+    void PushScrapheap()
+    {
+        debug (GameDebug) if (scrapheapInstance is null)
+        {
+            import core.stdc.stdio : printf;
+            printf("We tried to switch to the scrapheap allocator before we've initialized it");
+            asm {int 3;}
+        }
+
+        PushAllocator(&scrapheapInstance);
+    }
+
+    void PushGC()
+    {
+        PushAllocator(&gcInstance);
+    }
+
+    void PopAllocator()
+    {
+        allocatorStackTop--;
+        debug (GameDebug) if (allocatorStackTop < 0)
+        {
+            import core.stdc.stdio : printf;
+            printf("We blew the allocator stack");
+            asm {int 3;}
+        }
+        instance = allocatorStack[allocatorStackTop];
+    }
+
+    private
+    {
+        void PushAllocator(GC* gc)
+        {
+            allocatorStackTop++;
+            debug (GameDebug) if (allocatorStackTop >= ALLOCATOR_STACK_SIZE)
+            {
+                import core.stdc.stdio : printf;
+                printf("We popped more off the allocator stack than we pushed");
+                asm {int 3;}
+            }
+            allocatorStack[allocatorStackTop] = gc;
+            instance = gc;
+        }
+    }
+    // !!!
 }

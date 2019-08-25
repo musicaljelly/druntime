@@ -38,6 +38,7 @@ COPY=\
 	$(IMPDIR)\core\stdc\stdint.d \
 	$(IMPDIR)\core\stdc\stdio.d \
 	$(IMPDIR)\core\stdc\stdlib.d \
+	$(IMPDIR)\core\stdc\cstdlib_malloc.d \
 	$(IMPDIR)\core\stdc\string.d \
 	$(IMPDIR)\core\stdc\tgmath.d \
 	$(IMPDIR)\core\stdc\time.d \

@@ -23,6 +23,12 @@ enum __W32API_MINOR_VERSION = 17;
  *  Windows 9x is no longer supported, either by Microsoft or by DMD, this distinction has been
  *  removed in order to simplify the bindings.
  */
+// !!!
+// It looks like this version if-else doesn't work at all, and these version labels are unsupported.
+// I submitted a bug for this, see https://issues.dlang.org/show_bug.cgi?id=18659
+// In the meantime, I'll just hardcode it to Windows7, as that's the oldest version I'll support for the game.
+enum uint _WIN32_WINNT = 0x601;
+/*
  version (Windows10) {
     enum uint _WIN32_WINNT = 0x604;
 } else version (Windows8_1) {    // also Windows2012R2
@@ -44,6 +50,8 @@ enum __W32API_MINOR_VERSION = 17;
 } else {
     enum uint _WIN32_WINNT = 0x501;
 }
+*/
+// !!!
 
 version (IE10) {
     enum uint _WIN32_IE = 0xA00;

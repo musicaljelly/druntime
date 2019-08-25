@@ -187,4 +187,11 @@ interface GC
      *
      */
     bool inFinalizer() nothrow;
+
+    // !!!
+    // For scrapheap usage
+    void initializeScrapheapOnThisThread(size_t initScrapheapSize) nothrow;
+    void reset() nothrow;
+    size_t getHighWatermark() nothrow;
+    // !!!
 }

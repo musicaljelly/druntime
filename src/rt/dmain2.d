@@ -69,8 +69,10 @@ version(CRuntime_Microsoft)
 extern (C)
 {
     void* gc_getProxy();
-    void  gc_setProxy(void* p);
-    void  gc_clrProxy();
+    // !!!
+    //void  gc_setProxy(void* p);
+    //void  gc_clrProxy();
+    // !!!
 
     alias void* function()      gcGetFn;
     alias void  function(void*) gcSetFn;
@@ -126,9 +128,14 @@ version (Windows)
      */
     extern (C) int rt_unloadLibrary(void* ptr)
     {
+        // !!!
+        /*
+        // Don't do this here, we'll let the DLL do it in DLLMain's DLL_PROCESS_DETACH
         gcClrFn gcClr  = cast(gcClrFn) GetProcAddress(ptr, "gc_clrProxy");
         if (gcClr !is null)
             gcClr();
+        */
+        // !!!
         return FreeLibrary(ptr) != 0;
     }
 }
