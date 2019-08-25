@@ -63,7 +63,7 @@ version( CRuntime_Glibc )
     }
 
     //
-    // NOTE: These macros assume __USE_BSD is not defined in the relevant
+    // NOTE: These macros assume __USE_MISC is not defined in the relevant
     //       C headers as the parameter definition there is different and
     //       much more complicated.
     //
@@ -101,6 +101,28 @@ else version( Darwin )
     extern (D) int  WTERMSIG( int status )     { return _WSTATUS( status );              }
 }
 else version( FreeBSD )
+{
+    enum WNOHANG        = 1;
+    enum WUNTRACED      = 2;
+
+    private
+    {
+        enum _WSTOPPED = 0x7F; // octal 0177
+    }
+
+    extern (D) int _WSTATUS(int status)         { return (status & 0x7F);           }
+    extern (D) int  WEXITSTATUS( int status )   { return (status >> 8);             }
+    extern (D) int  WIFCONTINUED( int status )  { return status == 0x13;            }
+    extern (D) bool WIFEXITED( int status )     { return _WSTATUS(status) == 0;     }
+    extern (D) bool WIFSIGNALED( int status )
+    {
+        return _WSTATUS( status ) != _WSTOPPED && _WSTATUS( status ) != 0;
+    }
+    extern (D) bool WIFSTOPPED( int status )   { return _WSTATUS( status ) == _WSTOPPED; }
+    extern (D) int  WSTOPSIG( int status )     { return status >> 8;                     }
+    extern (D) int  WTERMSIG( int status )     { return _WSTATUS( status );              }
+}
+else version(NetBSD)
 {
     enum WNOHANG        = 1;
     enum WUNTRACED      = 2;
@@ -213,6 +235,12 @@ else version (FreeBSD)
     enum WNOWAIT        = 8;
 
     // http://www.freebsd.org/projects/c99/
+}
+else version (NetBSD)
+{
+    enum WSTOPPED       = WUNTRACED;
+    //enum WCONTINUED     = 4;
+    enum WNOWAIT        = 0x00010000;
 }
 else version (Solaris)
 {

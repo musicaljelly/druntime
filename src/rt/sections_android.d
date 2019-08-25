@@ -32,24 +32,24 @@ struct SectionGroup
         return dg(_sections);
     }
 
-    @property immutable(ModuleInfo*)[] modules() const
+    @property immutable(ModuleInfo*)[] modules() const nothrow @nogc
     {
         return _moduleGroup.modules;
     }
 
-    @property ref inout(ModuleGroup) moduleGroup() inout
+    @property ref inout(ModuleGroup) moduleGroup() inout nothrow @nogc
     {
         return _moduleGroup;
     }
 
-    @property immutable(FuncTable)[] ehTables() const
+    @property immutable(FuncTable)[] ehTables() const nothrow @nogc
     {
         auto pbeg = cast(immutable(FuncTable)*)&__start_deh;
         auto pend = cast(immutable(FuncTable)*)&__stop_deh;
         return pbeg[0 .. pend - pbeg];
     }
 
-    @property inout(void[])[] gcRanges() inout
+    @property inout(void[])[] gcRanges() inout nothrow @nogc
     {
         return _gcRanges[];
     }
@@ -59,7 +59,7 @@ private:
     void[][1] _gcRanges;
 }
 
-void initSections()
+void initSections() nothrow @nogc
 {
     pthread_key_create(&_tlsKey, null);
 
@@ -67,22 +67,22 @@ void initSections()
     auto mend = cast(immutable ModuleInfo**)&__stop_minfo;
     _sections.moduleGroup = ModuleGroup(mbeg[0 .. mend - mbeg]);
 
-    auto pbeg = cast(void*)&_tls_end;
+    auto pbeg = cast(void*)&_tlsend;
     auto pend = cast(void*)&__bss_end__;
     _sections._gcRanges[0] = pbeg[0 .. pend - pbeg];
 }
 
-void finiSections()
+void finiSections() nothrow @nogc
 {
     pthread_key_delete(_tlsKey);
 }
 
-void[]* initTLSRanges()
+void[]* initTLSRanges() nothrow @nogc
 {
     return &getTLSBlock();
 }
 
-void finiTLSRanges(void[]* rng)
+void finiTLSRanges(void[]* rng) nothrow @nogc
 {
     .free(rng.ptr);
     .free(rng);
@@ -93,11 +93,12 @@ void scanTLSRanges(void[]* rng, scope void delegate(void* pbeg, void* pend) noth
     dg(rng.ptr, rng.ptr + rng.length);
 }
 
-/* NOTE: The Bionic C library does not allow storing thread-local data
- *       in the normal .tbss/.tdata ELF sections. So instead we roll our
- *       own by simply putting tls into the non-tls .data/.bss sections
- *       and using the _tlsstart/_tlsend symbols as delimiters of the tls
- *       data.
+/* NOTE: The Bionic C library ignores thread-local data stored in the normal
+ *       .tbss/.tdata ELF sections, which are marked with the SHF_TLS/STT_TLS
+ *       flags.  So instead we roll our own by keeping TLS data in the
+ *       .tdata/.tbss sections but removing the SHF_TLS/STT_TLS flags, and
+ *       access the TLS data using this function and the _tlsstart/_tlsend
+ *       symbols as delimiters.
  *
  *       This function is called by the code emitted by the compiler.  It
  *       is expected to translate an address in the TLS static data to
@@ -108,7 +109,7 @@ version(X86)
 {
     // NB: the compiler mangles this function as '___tls_get_addr'
     // even though it is extern(D)
-    extern(D) void* ___tls_get_addr( void* p )
+    extern(D) void* ___tls_get_addr( void* p ) nothrow @nogc
     {
         debug(PRINTF) printf("  ___tls_get_addr input - %p\n", p);
         immutable offset = cast(size_t)(p - cast(void*)&_tlsstart);
@@ -119,7 +120,7 @@ version(X86)
 }
 else version(ARM)
 {
-    extern(C) void* __tls_get_addr( void** p )
+    extern(C) void* __tls_get_addr( void** p ) nothrow @nogc
     {
         debug(PRINTF) printf("  __tls_get_addr input - %p\n", *p);
         immutable offset = cast(size_t)(*p - cast(void*)&_tlsstart);
@@ -135,7 +136,7 @@ private:
 
 __gshared pthread_key_t _tlsKey;
 
-ref void[] getTLSBlock()
+ref void[] getTLSBlock() nothrow @nogc
 {
     auto pary = cast(void[]*)pthread_getspecific(_tlsKey);
     if (pary is null)
@@ -151,7 +152,7 @@ ref void[] getTLSBlock()
     return *pary;
 }
 
-ref void[] getTLSBlockAlloc()
+ref void[] getTLSBlockAlloc() nothrow @nogc
 {
     auto pary = &getTLSBlock();
     if (!pary.length)

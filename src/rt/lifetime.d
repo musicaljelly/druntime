@@ -12,17 +12,12 @@
 
 module rt.lifetime;
 
-import core.stdc.stdlib;
-import core.stdc.string;
-import core.stdc.stdarg;
-import core.bitop;
 import core.memory;
 debug(PRINTF) import core.stdc.stdio;
 static import rt.tlsgc;
 
 alias BlkInfo = GC.BlkInfo;
 alias BlkAttr = GC.BlkAttr;
-import core.exception : onOutOfMemoryError, onFinalizeError, onInvalidMemoryOperationError;
 
 private
 {
@@ -70,6 +65,8 @@ extern (C) void* _d_allocmemory(size_t sz)
  */
 extern (C) Object _d_newclass(const ClassInfo ci)
 {
+    import core.stdc.stdlib;
+    import core.exception : onOutOfMemoryError;
     void* p;
 
     debug(PRINTF) printf("_d_newclass(ci = %p, %s)\n", ci, cast(char *)ci.name);
@@ -274,9 +271,17 @@ bool __setArrayAllocLength(ref BlkInfo info, size_t newlength, bool isshared, co
 
     if(info.size <= 256)
     {
-        if(newlength + SMALLPAD + typeInfoSize > info.size)
+        import core.checkedint;
+
+        bool overflow;
+        auto newlength_padded = addu(newlength,
+                                     addu(SMALLPAD, typeInfoSize, overflow),
+                                     overflow);
+
+        if(newlength_padded > info.size || overflow)
             // new size does not fit inside block
             return false;
+
         auto length = cast(ubyte *)(info.base + info.size - typeInfoSize - SMALLPAD);
         if(oldlength != ~0)
         {
@@ -406,24 +411,38 @@ size_t __arrayPad(size_t size, const TypeInfo tinext) nothrow pure @trusted
   */
 BlkInfo __arrayAlloc(size_t arrsize, const TypeInfo ti, const TypeInfo tinext) nothrow pure
 {
+    import core.checkedint;
+
     size_t typeInfoSize = structTypeInfoSize(tinext);
     size_t padsize = arrsize > MAXMEDSIZE ? LARGEPAD : ((arrsize > MAXSMALLSIZE ? MEDPAD : SMALLPAD) + typeInfoSize);
 
-    if (arrsize + padsize < arrsize)
+    bool overflow;
+    auto padded_size = addu(arrsize, padsize, overflow);
+
+    if (overflow)
         return BlkInfo();
 
     uint attr = (!(tinext.flags & 1) ? BlkAttr.NO_SCAN : 0) | BlkAttr.APPENDABLE;
     if (typeInfoSize)
         attr |= BlkAttr.STRUCTFINAL | BlkAttr.FINALIZE;
-    return GC.qalloc(arrsize + padsize, attr, ti);
+    return GC.qalloc(padded_size, attr, ti);
 }
 
 BlkInfo __arrayAlloc(size_t arrsize, ref BlkInfo info, const TypeInfo ti, const TypeInfo tinext)
 {
+    import core.checkedint;
+
     if (!info.base)
         return __arrayAlloc(arrsize, ti, tinext);
 
-    return GC.qalloc(arrsize + __arrayPad(arrsize, tinext), info.attr, ti);
+    bool overflow;
+    auto padded_size = addu(arrsize, __arrayPad(arrsize, tinext), overflow);
+    if (overflow)
+    {
+        return BlkInfo();
+    }
+
+    return GC.qalloc(padded_size, info.attr, ti);
 }
 
 /**
@@ -457,6 +476,8 @@ else
 {
     if(!__blkcache_storage)
     {
+        import core.stdc.stdlib;
+        import core.stdc.string;
         // allocate the block cache for the first time
         immutable size = BlkInfo.sizeof * N_CACHE_BLOCKS;
         __blkcache_storage = cast(BlkInfo *)malloc(size);
@@ -471,6 +492,7 @@ static ~this()
     // free the blkcache
     if(__blkcache_storage)
     {
+        import core.stdc.stdlib;
         free(__blkcache_storage);
         __blkcache_storage = null;
     }
@@ -659,7 +681,10 @@ extern(C) void _d_arrayshrinkfit(const TypeInfo ti, void[] arr) /+nothrow+/
         // Note: Since we "assume" the append is safe, it means it is not shared.
         // Since it is not shared, we also know it won't throw (no lock).
         if (!__setArrayAllocLength(info, newsize, false, tinext))
+        {
+            import core.exception : onInvalidMemoryOperationError;
             onInvalidMemoryOperationError();
+        }
 
         // cache the block if not already done.
         if (!isshared && !bic)
@@ -715,8 +740,11 @@ in
     assert(ti);
     assert(!(*p).length || (*p).ptr);
 }
-body
+do
 {
+    import core.stdc.string;
+    import core.exception : onOutOfMemoryError;
+
     // step 1, get the block
     auto isshared = typeid(ti) is typeid(TypeInfo_Shared);
     auto bic = isshared ? null : __getBlkInfo((*p).ptr);
@@ -881,6 +909,8 @@ Lcontinue:
  */
 extern (C) void[] _d_newarrayU(const TypeInfo ti, size_t length) pure nothrow
 {
+    import core.exception : onOutOfMemoryError;
+
     auto tinext = unqualify(ti.next);
     auto size = tinext.tsize;
 
@@ -940,6 +970,8 @@ Lcontinue:
  */
 extern (C) void[] _d_newarrayT(const TypeInfo ti, size_t length) pure nothrow
 {
+    import core.stdc.string;
+
     void[] result = _d_newarrayU(ti, length);
     auto tinext = unqualify(ti.next);
     auto size = tinext.tsize;
@@ -972,6 +1004,7 @@ extern (C) void[] _d_newarrayiT(const TypeInfo ti, size_t length) pure nothrow
 
     default:
     {
+        import core.stdc.string;
         immutable sz = init.length;
         for (size_t u = 0; u < size * length; u += sz)
             memcpy(result.ptr + u, init.ptr, sz);
@@ -1078,6 +1111,7 @@ extern (C) void* _d_newitemU(in TypeInfo _ti)
 /// Same as above, zero initializes the item.
 extern (C) void* _d_newitemT(in TypeInfo _ti)
 {
+    import core.stdc.string;
     auto p = _d_newitemU(_ti);
     memset(p, 0, _ti.tsize);
     return p;
@@ -1086,6 +1120,7 @@ extern (C) void* _d_newitemT(in TypeInfo _ti)
 /// Same as above, for item with non-zero initializer.
 extern (C) void* _d_newitemiT(in TypeInfo _ti)
 {
+    import core.stdc.string;
     auto p = _d_newitemU(_ti);
     auto init = _ti.initializer();
     assert(init.length <= _ti.tsize);
@@ -1313,6 +1348,7 @@ void finalize_array2(void* p, size_t size) nothrow
     }
     catch (Exception e)
     {
+        import core.exception : onFinalizeError;
         onFinalizeError(si, e);
     }
 }
@@ -1351,6 +1387,7 @@ void finalize_struct(void* p, size_t size) nothrow
     }
     catch (Exception e)
     {
+        import core.exception : onFinalizeError;
         onFinalizeError(ti, e);
     }
     */
@@ -1401,6 +1438,7 @@ extern (C) void rt_finalize2(void* p, bool det = true, bool resetMemory = true) 
     }
     catch (Exception e)
     {
+        import core.exception : onFinalizeError;
         onFinalizeError(*pc, e);
     }
     finally
@@ -1435,8 +1473,10 @@ in
     assert(ti);
     assert(!(*p).length || (*p).ptr);
 }
-body
+do
 {
+    import core.stdc.string;
+
     debug(PRINTF)
     {
         //printf("_d_arraysetlengthT(p = %p, sizeelem = %d, newlength = %d)\n", p, sizeelem, newlength);
@@ -1567,6 +1607,10 @@ body
                     {
                         info = __arrayAlloc(newsize, ti, tinext);
                     }
+
+                    if (info.base is null)
+                        goto Loverflow;
+
                     __setArrayAllocLength(info, newsize, isshared, tinext);
                     if(!isshared)
                         __insertBlkInfoCache(info, bic);
@@ -1584,6 +1628,8 @@ body
         {
             // pointer was null, need to allocate
             auto info = __arrayAlloc(newsize, ti, tinext);
+            if (info.base is null)
+                goto Loverflow;
             __setArrayAllocLength(info, newsize, isshared, tinext);
             if(!isshared)
                 __insertBlkInfoCache(info, null);
@@ -1600,6 +1646,7 @@ body
     return *p;
 
 Loverflow:
+    import core.exception : onOutOfMemoryError;
     onOutOfMemoryError();
     assert(0);
 }
@@ -1618,8 +1665,10 @@ in
 {
     assert(!(*p).length || (*p).ptr);
 }
-body
+do
 {
+    import core.stdc.string;
+
     void* newdata;
     auto tinext = unqualify(ti.next);
     auto sizeelem = tinext.tsize;
@@ -1802,6 +1851,7 @@ body
     return *p;
 
 Loverflow:
+    import core.exception : onOutOfMemoryError;
     onOutOfMemoryError();
     assert(0);
 }
@@ -1812,6 +1862,7 @@ Loverflow:
  */
 extern (C) void[] _d_arrayappendT(const TypeInfo ti, ref byte[] x, byte[] y)
 {
+    import core.stdc.string;
     auto length = x.length;
     auto tinext = unqualify(ti.next);
     auto sizeelem = tinext.tsize;              // array element size
@@ -1881,6 +1932,7 @@ size_t newCapacity(size_t newlength, size_t size)
              */
             //long mult = 100 + (1000L * size) / (6 * log2plus1(newcap));
             //long mult = 100 + (1000L * size) / log2plus1(newcap);
+            import core.bitop;
             long mult = 100 + (1000L) / (bsr(newcap) + 1);
 
             // testing shows 1.02 for large arrays is about the point of diminishing return
@@ -1912,6 +1964,7 @@ size_t newCapacity(size_t newlength, size_t size)
 extern (C)
 byte[] _d_arrayappendcTX(const TypeInfo ti, ref byte[] px, size_t n)
 {
+    import core.stdc.string;
     // This is a cut&paste job from _d_arrayappendT(). Should be refactored.
 
     // only optimize array append where ti is not a shared type
@@ -1927,7 +1980,7 @@ byte[] _d_arrayappendcTX(const TypeInfo ti, ref byte[] px, size_t n)
     size_t newcap = void; // for scratch space
 
     // calculate the extent of the array given the base.
-    size_t offset = px.ptr - __arrayStart(info);
+    size_t offset = cast(void*)px.ptr - __arrayStart(info);
     if(info.base && (info.attr & BlkAttr.APPENDABLE))
     {
         if(info.size >= PAGESIZE)
@@ -2144,8 +2197,9 @@ out (result)
     size_t cap = GC.sizeOf(result.ptr);
     assert(!cap || cap > result.length * sizeelem);
 }
-body
+do
 {
+    import core.stdc.string;
     version (none)
     {
         /* Cannot use this optimization because:
@@ -2190,6 +2244,8 @@ body
  */
 extern (C) void[] _d_arraycatnTX(const TypeInfo ti, byte[][] arrs)
 {
+    import core.stdc.string;
+
     size_t length;
     auto tinext = unqualify(ti.next);
     auto size = tinext.tsize;   // array element size

@@ -11,8 +11,8 @@ import std.conv;
 import std.file;
 import std.exception;
 
-auto N = 50;
-auto NT = 4;
+__gshared int N = 10000;
+__gshared int NT = 4;
 
 __gshared ubyte[] BYTES;
 shared(int) running; // Atomic
@@ -59,5 +59,6 @@ void doAppend()
             sum += a;
         enforce(sum == 1000 * 999 / 2, "bad sum");
     }
-    running += -1;
+    import core.atomic : atomicOp;
+    atomicOp!"-="(running, 1);
 }

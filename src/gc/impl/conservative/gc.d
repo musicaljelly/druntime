@@ -775,7 +775,7 @@ class ConservativeGC : GC
     {
         assert(minsize <= maxsize);
     }
-    body
+    do
     {
         //debug(PRINTF) printf("GC::extend(p = %p, minsize = %zu, maxsize = %zu)\n", p, minsize, maxsize);
         debug (SENTINEL)
@@ -846,7 +846,7 @@ class ConservativeGC : GC
     }
 
 
-    void free(void *p) nothrow
+    void free(void *p) nothrow @nogc
     {
         if (!p || _inFinalizer)
         {
@@ -860,7 +860,7 @@ class ConservativeGC : GC
     //
     //
     //
-    private void freeNoSync(void *p) nothrow
+    private void freeNoSync(void *p) nothrow @nogc
     {
         debug(PRINTF) printf("Freeing %p\n", cast(size_t) p);
         assert (p);
@@ -920,7 +920,7 @@ class ConservativeGC : GC
     }
 
 
-    void* addrOf(void *p) nothrow
+    void* addrOf(void *p) nothrow @nogc
     {
         if (!p)
         {
@@ -934,7 +934,7 @@ class ConservativeGC : GC
     //
     //
     //
-    void* addrOfNoSync(void *p) nothrow
+    void* addrOfNoSync(void *p) nothrow @nogc
     {
         if (!p)
         {
@@ -948,7 +948,7 @@ class ConservativeGC : GC
     }
 
 
-    size_t sizeOf(void *p) nothrow
+    size_t sizeOf(void *p) nothrow @nogc
     {
         if (!p)
         {
@@ -962,7 +962,7 @@ class ConservativeGC : GC
     //
     //
     //
-    private size_t sizeOfNoSync(void *p) nothrow
+    private size_t sizeOfNoSync(void *p) nothrow @nogc
     {
         assert (p);
 
@@ -1561,7 +1561,7 @@ struct Gcx
         ConservativeGC._inFinalizer = false;
     }
 
-    Pool* findPool(void* p) pure nothrow
+    Pool* findPool(void* p) pure nothrow @nogc
     {
         return pooltable.findPool(p);
     }
@@ -1570,7 +1570,7 @@ struct Gcx
      * Find base address of block containing pointer p.
      * Returns null if not a gc'd pointer
      */
-    void* findBase(void *p) nothrow
+    void* findBase(void *p) nothrow @nogc
     {
         Pool *pool;
 
@@ -1609,7 +1609,7 @@ struct Gcx
      * Find size of pointer p.
      * Returns 0 if not a gc'd pointer
      */
-    size_t findSize(void *p) nothrow
+    size_t findSize(void *p) nothrow @nogc
     {
         Pool* pool = findPool(p);
         if (pool)
@@ -1930,6 +1930,12 @@ struct Gcx
         return null;
     }
 
+    static struct ScanRange
+    {
+        void* pbot;
+        void* ptop;
+    }
+
     static struct ToScanStack
     {
     nothrow:
@@ -1938,27 +1944,27 @@ struct Gcx
         void reset()
         {
             _length = 0;
-            os_mem_unmap(_p, _cap * Range.sizeof);
+            os_mem_unmap(_p, _cap * ScanRange.sizeof);
             _p = null;
             _cap = 0;
         }
 
-        void push(Range rng)
+        void push(ScanRange rng)
         {
             if (_length == _cap) grow();
             _p[_length++] = rng;
         }
 
-        Range pop()
+        ScanRange pop()
         in { assert(!empty); }
-        body
+        do
         {
             return _p[--_length];
         }
 
-        ref inout(Range) opIndex(size_t idx) inout
+        ref inout(ScanRange) opIndex(size_t idx) inout
         in { assert(idx < _length); }
-        body
+        do
         {
             return _p[idx];
         }
@@ -1969,21 +1975,23 @@ struct Gcx
     private:
         void grow()
         {
+            pragma(inline, false);
+
             enum initSize = 64 * 1024; // Windows VirtualAlloc granularity
-            immutable ncap = _cap ? 2 * _cap : initSize / Range.sizeof;
-            auto p = cast(Range*)os_mem_map(ncap * Range.sizeof);
+            immutable ncap = _cap ? 2 * _cap : initSize / ScanRange.sizeof;
+            auto p = cast(ScanRange*)os_mem_map(ncap * ScanRange.sizeof);
             if (p is null) onOutOfMemoryErrorNoGC();
             if (_p !is null)
             {
                 p[0 .. _length] = _p[0 .. _length];
-                os_mem_unmap(_p, _cap * Range.sizeof);
+                os_mem_unmap(_p, _cap * ScanRange.sizeof);
             }
             _p = p;
             _cap = ncap;
         }
 
         size_t _length;
-        Range* _p;
+        ScanRange* _p;
         size_t _cap;
     }
 
@@ -1992,36 +2000,39 @@ struct Gcx
     /**
      * Search a range of memory values and mark any pointers into the GC pool.
      */
-    void mark(void *pbot, void *ptop) nothrow
+    void mark(void *pbot, void *ptop) scope nothrow
     {
+        if (pbot >= ptop)
+            return;
+
         void **p1 = cast(void **)pbot;
         void **p2 = cast(void **)ptop;
 
         // limit the amount of ranges added to the toscan stack
         enum FANOUT_LIMIT = 32;
         size_t stackPos;
-        Range[FANOUT_LIMIT] stack = void;
+        ScanRange[FANOUT_LIMIT] stack = void;
 
-    Lagain:
         size_t pcache = 0;
 
         // let dmd allocate a register for this.pools
         auto pools = pooltable.pools;
         const highpool = pooltable.npools - 1;
         const minAddr = pooltable.minAddr;
-        const maxAddr = pooltable.maxAddr;
+        size_t memSize = pooltable.maxAddr - minAddr;
+
+        void* base = void;
+        void* top = void;
 
         //printf("marking range: [%p..%p] (%#zx)\n", p1, p2, cast(size_t)p2 - cast(size_t)p1);
-    Lnext: for (; p1 < p2; p1++)
+        for (;;)
         {
-            auto p = cast(byte *)(*p1);
+            auto p = *p1;
 
             //if (log) debug(PRINTF) printf("\tmark %p\n", p);
-            if (p >= minAddr && p < maxAddr)
+            if (cast(size_t)(p - minAddr) < memSize &&
+                (cast(size_t)p & ~cast(size_t)(PAGESIZE-1)) != pcache)
             {
-                if ((cast(size_t)p & ~cast(size_t)(PAGESIZE-1)) == pcache)
-                    continue;
-
                 Pool* pool = void;
                 size_t low = 0;
                 size_t high = highpool;
@@ -2036,13 +2047,12 @@ struct Gcx
                     else break;
 
                     if (low > high)
-                        continue Lnext;
+                        goto LnextPtr;
                 }
                 size_t offset = cast(size_t)(p - pool.baseAddr);
                 size_t biti = void;
                 size_t pn = offset / PAGESIZE;
-                Bins   bin = cast(Bins)pool.pagetable[pn];
-                void* base = void;
+                size_t bin = pool.pagetable[pn]; // not Bins to avoid multiple size extension instructions
 
                 //debug(PRINTF) printf("\t\tfound pool %p, base=%p, pn = %zd, bin = %d, biti = x%x\n", pool, pool.baseAddr, pn, bin, biti);
 
@@ -2052,94 +2062,106 @@ struct Gcx
                     // We don't care abou setting pointsToBase correctly
                     // because it's ignored for small object pools anyhow.
                     auto offsetBase = offset & notbinsize[bin];
-                    biti = offsetBase >> pool.shiftBy;
-                    base = pool.baseAddr + offsetBase;
+                    biti = offsetBase >> Pool.ShiftBy.Small;
                     //debug(PRINTF) printf("\t\tbiti = x%x\n", biti);
 
-                    if (!pool.mark.set(biti) && !pool.noscan.test(biti)) {
-                        stack[stackPos++] = Range(base, base + binsize[bin]);
-                        if (stackPos == stack.length)
-                            break;
+                    if (!pool.mark.set(biti) && !pool.noscan.test(biti))
+                    {
+                        base = pool.baseAddr + offsetBase;
+                        top = base + binsize[bin];
+                        goto LaddRange;
                     }
                 }
                 else if (bin == B_PAGE)
                 {
-                    auto offsetBase = offset & notbinsize[bin];
-                    base = pool.baseAddr + offsetBase;
-                    biti = offsetBase >> pool.shiftBy;
+                    biti = offset >> Pool.ShiftBy.Large;
                     //debug(PRINTF) printf("\t\tbiti = x%x\n", biti);
 
                     pcache = cast(size_t)p & ~cast(size_t)(PAGESIZE-1);
+                    base = cast(void*)pcache;
 
                     // For the NO_INTERIOR attribute.  This tracks whether
                     // the pointer is an interior pointer or points to the
                     // base address of a block.
-                    bool pointsToBase = (base == sentinel_sub(p));
-                    if(!pointsToBase && pool.nointerior.nbits && pool.nointerior.test(biti))
-                        continue;
+                    if(base != sentinel_sub(p) && pool.nointerior.nbits && pool.nointerior.test(biti))
+                        goto LnextPtr;
 
-                    if (!pool.mark.set(biti) && !pool.noscan.test(biti)) {
-                        stack[stackPos++] = Range(base, base + pool.bPageOffsets[pn] * PAGESIZE);
-                        if (stackPos == stack.length)
-                            break;
+                    if (!pool.mark.set(biti) && !pool.noscan.test(biti))
+                    {
+                        top = base + pool.bPageOffsets[pn] * PAGESIZE;
+                        goto LaddRange;
                     }
                 }
                 else if (bin == B_PAGEPLUS)
                 {
                     pn -= pool.bPageOffsets[pn];
-                    base = pool.baseAddr + (pn * PAGESIZE);
-                    biti = pn * (PAGESIZE >> pool.shiftBy);
+                    biti = pn * (PAGESIZE >> Pool.ShiftBy.Large);
 
                     pcache = cast(size_t)p & ~cast(size_t)(PAGESIZE-1);
                     if(pool.nointerior.nbits && pool.nointerior.test(biti))
-                        continue;
+                        goto LnextPtr;
 
-                    if (!pool.mark.set(biti) && !pool.noscan.test(biti)) {
-                        stack[stackPos++] = Range(base, base + pool.bPageOffsets[pn] * PAGESIZE);
-                        if (stackPos == stack.length)
-                            break;
+                    if (!pool.mark.set(biti) && !pool.noscan.test(biti))
+                    {
+                        base = pool.baseAddr + (pn * PAGESIZE);
+                        top = base + pool.bPageOffsets[pn] * PAGESIZE;
+                        goto LaddRange;
                     }
                 }
                 else
                 {
                     // Don't mark bits in B_FREE pages
                     assert(bin == B_FREE);
-                    continue;
                 }
             }
-        }
+        LnextPtr:
+            if (++p1 < p2)
+                continue;
 
-        Range next=void;
-        if (p1 < p2)
-        {
-            // local stack is full, push it to the global stack
-            assert(stackPos == stack.length);
-            toscan.push(Range(p1, p2));
-            // reverse order for depth-first-order traversal
-            foreach_reverse (ref rng; stack[0 .. $ - 1])
-                toscan.push(rng);
-            stackPos = 0;
-            next = stack[$-1];
+            if (stackPos)
+            {
+                // pop range from local stack and recurse
+                auto next = &stack[--stackPos];
+                p1 = cast(void**)next.pbot;
+                p2 = cast(void**)next.ptop;
+            }
+            else if (!toscan.empty)
+            {
+                // pop range from global stack and recurse
+                auto next = toscan.pop();
+                p1 = cast(void**)next.pbot;
+                p2 = cast(void**)next.ptop;
+            }
+            else
+            {
+                // nothing more to do
+                break;
+            }
+            // printf("  pop [%p..%p] (%#zx)\n", p1, p2, cast(size_t)p2 - cast(size_t)p1);
+            pcache = 0;
+            continue;
+
+        LaddRange:
+            if (++p1 < p2)
+            {
+                if (stackPos < stack.length)
+                {
+                    stack[stackPos].pbot = base;
+                    stack[stackPos].ptop = top;
+                    stackPos++;
+                    continue;
+                }
+                toscan.push(ScanRange(p1, p2));
+                // reverse order for depth-first-order traversal
+                foreach_reverse (ref rng; stack)
+                    toscan.push(rng);
+                stackPos = 0;
+            }
+            // continue with last found range
+            p1 = cast(void**)base;
+            p2 = cast(void**)top;
+            pcache = 0;
         }
-        else if (stackPos)
-        {
-            // pop range from local stack and recurse
-            next = stack[--stackPos];
-        }
-        else if (!toscan.empty)
-        {
-            // pop range from global stack and recurse
-            next = toscan.pop();
-        }
-        else
-        {
-            // nothing more to do
-            return;
-        }
-        p1 = cast(void**)next.pbot;
-        p2 = cast(void**)next.ptop;
-        // printf("  pop [%p..%p] (%#zx)\n", p1, p2, cast(size_t)p2 - cast(size_t)p1);
-        goto Lagain;
     }
 
     // collection step 1: prepare freebits and mark bits
@@ -2164,7 +2186,7 @@ struct Gcx
             {
                 pool = list.pool;
                 assert(pool);
-                pool.freebits.set(cast(size_t)(cast(byte*)list - pool.baseAddr) / 16);
+                pool.freebits.set(cast(size_t)(cast(void*)list - pool.baseAddr) / 16);
             }
         }
 
@@ -2230,7 +2252,7 @@ struct Gcx
 
                     if (!pool.mark.test(biti))
                     {
-                        byte *p = pool.baseAddr + pn * PAGESIZE;
+                        void *p = pool.baseAddr + pn * PAGESIZE;
                         void* q = sentinel_add(p);
                         sentinel_Invariant(q);
 
@@ -2282,8 +2304,8 @@ struct Gcx
                     if (bin < B_PAGE)
                     {
                         immutable size = binsize[bin];
-                        byte *p = pool.baseAddr + pn * PAGESIZE;
-                        byte *ptop = p + PAGESIZE;
+                        void *p = pool.baseAddr + pn * PAGESIZE;
+                        void *ptop = p + PAGESIZE;
                         immutable base = pn * (PAGESIZE/16);
                         immutable bitstride = size / 16;
 
@@ -2358,7 +2380,7 @@ struct Gcx
                     size_t bitstride = size / 16;
                     size_t bitbase = pn * (PAGESIZE / 16);
                     size_t bittop = bitbase + (PAGESIZE / 16);
-                    byte*  p;
+                    void*  p;
 
                     biti = bitbase;
                     for (biti = bitbase; biti < bittop; biti += bitstride)
@@ -2503,7 +2525,7 @@ struct Gcx
      * Warning! This should only be called while the world is stopped inside
      * the fullcollect function.
      */
-    int isMarked(void *addr) nothrow
+    int isMarked(void *addr) scope nothrow
     {
         // first, we find the Pool this block is in, then check to see if the
         // mark bit is clear.
@@ -2521,7 +2543,7 @@ struct Gcx
             else if(bins == B_PAGEPLUS)
             {
                 pn -= pool.bPageOffsets[pn];
-                biti = pn * (PAGESIZE >> pool.shiftBy);
+                biti = pn * (PAGESIZE >> pool.ShiftBy.Large);
             }
             else // bins == B_FREE
             {
@@ -2559,19 +2581,19 @@ struct Gcx
 
             log.p = p;
             log.size = size;
-            log.line = GC.line;
-            log.file = GC.file;
+            log.line = ConservativeGC.line;
+            log.file = ConservativeGC.file;
             log.parent = null;
 
-            GC.line = 0;
-            GC.file = null;
+            ConservativeGC.line = 0;
+            ConservativeGC.file = null;
 
             current.push(log);
             //debug(PRINTF) printf("-log_malloc()\n");
         }
 
 
-        void log_free(void *p) nothrow
+        void log_free(void *p) nothrow @nogc
         {
             //debug(PRINTF) printf("+log_free(%p)\n", p);
             auto i = current.find(p);
@@ -2649,7 +2671,7 @@ struct Gcx
     {
         void log_init() nothrow { }
         void log_malloc(void *p, size_t size) nothrow { }
-        void log_free(void *p) nothrow { }
+        void log_free(void *p) nothrow @nogc { }
         void log_collect() nothrow { }
         void log_parent(void *p, void *parent) nothrow { }
     }
@@ -2659,8 +2681,8 @@ struct Gcx
 
 struct Pool
 {
-    byte* baseAddr;
-    byte* topAddr;
+    void* baseAddr;
+    void* topAddr;
     GCBits mark;        // entries already scanned, or should not be scanned
     GCBits freebits;    // entries that are on the free list
     GCBits finals;      // entries that need finalizer run on them
@@ -2675,7 +2697,12 @@ struct Pool
 
     bool isLargeObject;
 
-    uint shiftBy;    // shift count for the divisor used for determining bit indices.
+    enum ShiftBy
+    {
+        Small = 4,
+        Large = 12
+    }
+    ShiftBy shiftBy;    // shift count for the divisor used for determining bit indices.
 
     // This tracks how far back we have to go to find the nearest B_PAGE at
     // a smaller address than a B_PAGEPLUS.  To save space, we use a uint.
@@ -2694,7 +2721,7 @@ struct Pool
         this.isLargeObject = isLargeObject;
         size_t poolsize;
 
-        shiftBy = isLargeObject ? 12 : 4;
+        shiftBy = isLargeObject ? ShiftBy.Large : ShiftBy.Small;
 
         //debug(PRINTF) printf("Pool::Pool(%u)\n", npages);
         poolsize = npages * PAGESIZE;
@@ -2811,7 +2838,7 @@ struct Pool
     /**
      *
      */
-    void clrBits(size_t biti, uint mask) nothrow
+    void clrBits(size_t biti, uint mask) nothrow @nogc
     {
         immutable dataIndex =  biti >> GCBits.BITS_SHIFT;
         immutable bitOffset = biti & GCBits.BITS_MASK;
@@ -2915,13 +2942,13 @@ struct Pool
     /**
      * Given a pointer p in the p, return the pagenum.
      */
-    size_t pagenumOf(void *p) const nothrow
+    size_t pagenumOf(void *p) const nothrow @nogc
     in
     {
         assert(p >= baseAddr);
         assert(p < topAddr);
     }
-    body
+    do
     {
         return cast(size_t)(p - baseAddr) / PAGESIZE;
     }
@@ -2931,7 +2958,7 @@ struct Pool
         return npages == freepages;
     }
 
-    size_t slGetSize(void* p) nothrow
+    size_t slGetSize(void* p) nothrow @nogc
     {
         if (isLargeObject)
             return (cast(LargeObjectPool*)&this).getSize(p);
@@ -3047,7 +3074,7 @@ struct LargeObjectPool
     /**
      * Free npages pages starting with pagenum.
      */
-    void freePages(size_t pagenum, size_t npages) nothrow
+    void freePages(size_t pagenum, size_t npages) nothrow @nogc
     {
         //memset(&pagetable[pagenum], B_FREE, npages);
         if(pagenum < searchStart)
@@ -3068,13 +3095,13 @@ struct LargeObjectPool
     /**
      * Get size of pointer p in pool.
      */
-    size_t getSize(void *p) const nothrow
+    size_t getSize(void *p) const nothrow @nogc
     in
     {
         assert(p >= baseAddr);
         assert(p < topAddr);
     }
-    body
+    do
     {
         size_t pagenum = pagenumOf(p);
         Bins bin = cast(Bins)pagetable[pagenum];
@@ -3153,13 +3180,13 @@ struct SmallObjectPool
     /**
     * Get size of pointer p in pool.
     */
-    size_t getSize(void *p) const nothrow
+    size_t getSize(void *p) const nothrow @nogc
     in
     {
         assert(p >= baseAddr);
         assert(p < topAddr);
     }
-    body
+    do
     {
         size_t pagenum = pagenumOf(p);
         Bins bin = cast(Bins)pagetable[pagenum];
@@ -3180,7 +3207,7 @@ struct SmallObjectPool
         info.base = cast(void*)((cast(size_t)p) & notbinsize[bin]);
         info.size = binsize[bin];
         offset = info.base - baseAddr;
-        info.attr = getBits(cast(size_t)(offset >> shiftBy));
+        info.attr = getBits(cast(size_t)(offset >> ShiftBy.Small));
 
         return info;
     }
@@ -3296,7 +3323,7 @@ unittest // bugzilla 15822
 {
     import core.memory : GC;
 
-    ubyte[16] buf;
+    __gshared ubyte[16] buf;
     static struct Foo
     {
         ~this()
@@ -3349,7 +3376,7 @@ debug (SENTINEL)
     }
 
 
-    void sentinel_Invariant(const void *p) nothrow
+    void sentinel_Invariant(const void *p) nothrow @nogc
     {
         debug
         {
@@ -3361,13 +3388,13 @@ debug (SENTINEL)
     }
 
 
-    void *sentinel_add(void *p) nothrow
+    void *sentinel_add(void *p) nothrow @nogc
     {
         return p + 2 * size_t.sizeof;
     }
 
 
-    void *sentinel_sub(void *p) nothrow
+    void *sentinel_sub(void *p) nothrow @nogc
     {
         return p - 2 * size_t.sizeof;
     }
@@ -3382,18 +3409,18 @@ else
     }
 
 
-    void sentinel_Invariant(const void *p) nothrow
+    void sentinel_Invariant(const void *p) nothrow @nogc
     {
     }
 
 
-    void *sentinel_add(void *p) nothrow
+    void *sentinel_add(void *p) nothrow @nogc
     {
         return p;
     }
 
 
-    void *sentinel_sub(void *p) nothrow
+    void *sentinel_sub(void *p) nothrow @nogc
     {
         return p;
     }
@@ -3428,3 +3455,52 @@ unittest
     assert(thrown);
 */
 }
+
+unittest
+{
+    import core.memory;
+
+    // https://issues.dlang.org/show_bug.cgi?id=9275
+    GC.removeRoot(null);
+    GC.removeRoot(cast(void*)13);
+}
+
+// improve predictability of coverage of code that is eventually not hit by other tests
+unittest
+{
+    import core.memory;
+    auto p = GC.malloc(260 << 20); // new pool has 390 MB
+    auto q = GC.malloc(65 << 20);  // next chunk (larger than 64MB to ensure the same pool is used)
+    auto r = GC.malloc(65 << 20);  // another chunk in same pool
+    assert(p + (260 << 20) == q);
+    assert(q + (65 << 20) == r);
+    GC.free(q);
+    // should trigger "assert(bin == B_FREE);" in mark due to dangling pointer q:
+    GC.collect();
+    // should trigger "break;" in extendNoSync:
+    size_t sz = GC.extend(p, 64 << 20, 66 << 20); // trigger size after p large enough (but limited)
+    assert(sz == 325 << 20);
+    GC.free(p);
+    GC.free(r);
+    r = q; // ensure q is not trashed before collection above
+
+    p = GC.malloc(70 << 20); // from the same pool
+    q = GC.malloc(70 << 20);
+    r = GC.malloc(70 << 20);
+    auto s = GC.malloc(70 << 20);
+    auto t = GC.malloc(70 << 20); // 350 MB of 390 MB used
+    assert(p + (70 << 20) == q);
+    assert(q + (70 << 20) == r);
+    assert(r + (70 << 20) == s);
+    assert(s + (70 << 20) == t);
+    GC.free(r); // ensure recalculation of largestFree in nxxt allocPages
+    auto z = GC.malloc(75 << 20); // needs new pool
+
+    GC.free(p);
+    GC.free(q);
+    GC.free(s);
+    GC.free(t);
+    GC.free(z);
+    GC.minimize(); // release huge pool
+}
+

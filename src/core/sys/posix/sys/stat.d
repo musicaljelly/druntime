@@ -534,6 +534,83 @@ version( CRuntime_Glibc )
         else
             static assert(stat_t.sizeof == 128);
     }
+    else version (SPARC64)
+    {
+        private
+        {
+            alias __dev_t = ulong;
+            alias __ino_t = c_ulong;
+            alias __ino64_t = ulong;
+            alias __mode_t = uint;
+            alias __nlink_t = uint;
+            alias __uid_t = uint;
+            alias __gid_t = uint;
+            alias __off_t = c_long;
+            alias __off64_t = long;
+            alias __blksize_t = c_long;
+            alias __blkcnt_t = c_long;
+            alias __blkcnt64_t = long;
+            alias __timespec = timespec;
+            alias __time_t = time_t;
+        }
+        struct stat_t
+        {
+            __dev_t st_dev;
+            ushort __pad1;
+            __ino_t st_ino;
+            __mode_t st_mode;
+            __nlink_t st_nlink;
+            __uid_t st_uid;
+            __gid_t st_gid;
+            __dev_t st_rdev;
+            ushort __pad2;
+
+            static if(!__USE_FILE_OFFSET64)
+            {
+                __off_t st_size;
+            }
+            else
+            {
+                __off64_t st_size;
+            }
+            __blksize_t st_blksize;
+
+            static if(!__USE_FILE_OFFSET64)
+            {
+                __blkcnt_t st_blocks;
+            }
+            else
+            {
+                __blkcnt64_t st_blocks;
+            }
+
+            static if(__USE_XOPEN2K8)
+            {
+                __timespec st_atim;
+                __timespec st_mtim;
+                __timespec st_ctim;
+                extern(D)
+                {
+                    @property ref time_t st_atime() { return st_atim.tv_sec; }
+                    @property ref time_t st_mtime() { return st_mtim.tv_sec; }
+                    @property ref time_t st_ctime() { return st_ctim.tv_sec; }
+                }
+            }
+            else
+            {
+                __time_t st_atime;
+                c_ulong st_atimensec;
+                __time_t st_mtime;
+                c_ulong st_mtimensec;
+                __time_t st_ctime;
+                c_ulong st_ctimensec;
+            }
+
+            c_ulong __unused4;
+            c_ulong __unused5;
+        }
+        static assert(stat_t.sizeof == 144);
+    }
     else version (SystemZ)
     {
         private
@@ -803,6 +880,68 @@ else version( FreeBSD )
         int futimens(int fd, ref const(timespec)[2] times);
     }
 }
+else version(NetBSD)
+{
+    struct stat_t
+    {
+        dev_t     st_dev;               /* inode's device */
+        mode_t    st_mode;              /* inode protection mode */
+        ino_t     st_ino;               /* inode's number */
+        nlink_t   st_nlink;             /* number of hard links */
+        uid_t     st_uid;               /* user ID of the file's owner */
+        gid_t     st_gid;               /* group ID of the file's group */
+        dev_t     st_rdev;              /* device type */
+        time_t    st_atime;             /* time of last access */
+        long      st_atimensec;         /* nsec of last access */
+        time_t    st_mtime;             /* time of last data modification */
+        long      st_mtimensec;         /* nsec of last data modification */
+        time_t    st_ctime;             /* time of last file status change */
+        long      st_ctimensec;         /* nsec of last file status change */
+        time_t    st_birthtime;         /* time of creation */
+        long      st_birthtimensec;     /* nsec of time of creation */
+        off_t     st_size;              /* file size, in bytes */
+        blkcnt_t  st_blocks;            /* blocks allocated for file */
+        blksize_t st_blksize;           /* optimal blocksize for I/O */
+        uint32_t  st_flags;             /* user defined flags for file */
+        uint32_t  st_gen;               /* file generation number */
+        uint32_t[2]  st_spare;
+    }
+
+    enum S_IRUSR    = 0x100; // octal 0000400
+    enum S_IWUSR    = 0x080; // octal 0000200
+    enum S_IXUSR    = 0x040; // octal 0000100
+    enum S_IRWXU    = 0x1C0; // octal 0000700
+
+    enum S_IRGRP    = 0x020;  // octal 0000040
+    enum S_IWGRP    = 0x010;  // octal 0000020
+    enum S_IXGRP    = 0x008;  // octal 0000010
+    enum S_IRWXG    = 0x038;  // octal 0000070
+
+    enum S_IROTH    = 0x4; // 0000004
+    enum S_IWOTH    = 0x2; // 0000002
+    enum S_IXOTH    = 0x1; // 0000001
+    enum S_IRWXO    = 0x7; // 0000007
+
+    enum S_ISUID    = 0x800; // octal 0004000
+    enum S_ISGID    = 0x400; // octal 0002000
+    enum S_ISVTX    = 0x200; // octal 0001000
+
+    private
+    {
+        extern (D) bool S_ISTYPE( mode_t mode, uint mask )
+        {
+            return ( mode & S_IFMT ) == mask;
+        }
+    }
+
+    extern (D) bool S_ISBLK( mode_t mode )  { return S_ISTYPE( mode, S_IFBLK );  }
+    extern (D) bool S_ISCHR( mode_t mode )  { return S_ISTYPE( mode, S_IFCHR );  }
+    extern (D) bool S_ISDIR( mode_t mode )  { return S_ISTYPE( mode, S_IFDIR );  }
+    extern (D) bool S_ISFIFO( mode_t mode ) { return S_ISTYPE( mode, S_IFIFO );  }
+    extern (D) bool S_ISREG( mode_t mode )  { return S_ISTYPE( mode, S_IFREG );  }
+    extern (D) bool S_ISLNK( mode_t mode )  { return S_ISTYPE( mode, S_IFLNK );  }
+    extern (D) bool S_ISSOCK( mode_t mode ) { return S_ISTYPE( mode, S_IFSOCK ); }
+}
 else version (Solaris)
 {
     private enum _ST_FSTYPSZ = 16;
@@ -1048,6 +1187,10 @@ else version( CRuntime_Bionic )
     extern (D) bool S_ISREG( uint mode )  { return S_ISTYPE( mode, S_IFREG );  }
     extern (D) bool S_ISLNK( uint mode )  { return S_ISTYPE( mode, S_IFLNK );  }
     extern (D) bool S_ISSOCK( uint mode ) { return S_ISTYPE( mode, S_IFSOCK ); }
+
+    // Added since Lollipop
+    int utimensat(int dirfd, const char *pathname,
+        ref const(timespec)[2] times, int flags);
 }
 else
 {
@@ -1142,6 +1285,15 @@ else version( FreeBSD )
     int   lstat(in char*, stat_t*);
     int   stat(in char*, stat_t*);
 }
+else version(NetBSD)
+{
+    int   __fstat50(int, stat_t*);
+    int   __lstat50(in char*, stat_t*);
+    int   __stat50(in char*, stat_t*);
+    alias __fstat50 fstat;
+    alias __lstat50 lstat;
+    alias __stat50 stat;
+}
 else version( CRuntime_Bionic )
 {
     int   fstat(int, stat_t*) @trusted;
@@ -1199,6 +1351,19 @@ else version( Darwin )
     int mknod(in char*, mode_t, dev_t);
 }
 else version( FreeBSD )
+{
+    enum S_IFMT     = 0xF000; // octal 0170000
+    enum S_IFBLK    = 0x6000; // octal 0060000
+    enum S_IFCHR    = 0x2000; // octal 0020000
+    enum S_IFIFO    = 0x1000; // octal 0010000
+    enum S_IFREG    = 0x8000; // octal 0100000
+    enum S_IFDIR    = 0x4000; // octal 0040000
+    enum S_IFLNK    = 0xA000; // octal 0120000
+    enum S_IFSOCK   = 0xC000; // octal 0140000
+
+    int mknod(in char*, mode_t, dev_t);
+}
+else version(NetBSD)
 {
     enum S_IFMT     = 0xF000; // octal 0170000
     enum S_IFBLK    = 0x6000; // octal 0060000

@@ -125,10 +125,10 @@ private
     extern (C) void*    gc_realloc( void* p, size_t sz, uint ba = 0, const TypeInfo = null ) pure nothrow;
     extern (C) size_t   gc_extend( void* p, size_t mx, size_t sz, const TypeInfo = null ) pure nothrow;
     extern (C) size_t   gc_reserve( size_t sz ) nothrow;
-    extern (C) void     gc_free( void* p ) pure nothrow;
+    extern (C) void     gc_free( void* p ) pure nothrow @nogc;
 
-    extern (C) void*   gc_addrOf( void* p ) pure nothrow;
-    extern (C) size_t  gc_sizeOf( void* p ) pure nothrow;
+    extern (C) void*   gc_addrOf( void* p ) pure nothrow @nogc;
+    extern (C) size_t  gc_sizeOf( void* p ) pure nothrow @nogc;
 
     struct BlkInfo_
     {
@@ -233,8 +233,8 @@ struct GC
 
         This can be used to manually allocate arrays. Initial slice size is 0.
 
-        Note: The slice's useable size will not match the block size. Use
-        $(LREF capacity) to retrieve actual useable capacity.
+        Note: The slice's usable size will not match the block size. Use
+        $(LREF capacity) to retrieve actual usable capacity.
 
         Example:
         ----
@@ -272,7 +272,7 @@ struct GC
      * size = The size of the block, calculated from base.
      * attr = Attribute bits set on the memory block.
      */
-    alias BlkInfo_ BlkInfo;
+    alias BlkInfo = BlkInfo_;
 
 
     /**
@@ -510,7 +510,7 @@ struct GC
      *  Extend may also be used to extend slices (or memory blocks with
      *  $(LREF APPENDABLE) info). However, use the return value only
      *  as an indicator of success. $(LREF capacity) should be used to
-     *  retrieve actual useable slice capacity.
+     *  retrieve actual usable slice capacity.
      */
     static size_t extend( void* p, size_t mx, size_t sz, const TypeInfo ti = null ) pure nothrow
     {
@@ -574,7 +574,7 @@ struct GC
      * Params:
      *  p = A pointer to the root of a valid memory block or to null.
      */
-    static void free( void* p ) pure nothrow
+    static void free( void* p ) pure nothrow @nogc
     {
         gc_free( p );
     }
@@ -595,14 +595,14 @@ struct GC
      * Returns:
      *  The base address of the memory block referenced by p or null on error.
      */
-    static inout(void)* addrOf( inout(void)* p ) nothrow /* FIXME pure */
+    static inout(void)* addrOf( inout(void)* p ) nothrow @nogc /* FIXME pure */
     {
         return cast(inout(void)*)gc_addrOf(cast(void*)p);
     }
 
 
     /// ditto
-    static void* addrOf(void* p) pure nothrow
+    static void* addrOf(void* p) pure nothrow @nogc
     {
         return gc_addrOf(p);
     }
@@ -621,14 +621,14 @@ struct GC
      * Returns:
      *  The size in bytes of the memory block referenced by p or zero on error.
      */
-    static size_t sizeOf( in void* p ) nothrow
+    static size_t sizeOf( in void* p ) nothrow @nogc /* FIXME pure */
     {
         return gc_sizeOf(cast(void*)p);
     }
 
 
     /// ditto
-    static size_t sizeOf(void* p) pure nothrow
+    static size_t sizeOf(void* p) pure nothrow @nogc
     {
         return gc_sizeOf( p );
     }
@@ -808,4 +808,114 @@ struct GC
     {
         gc_runFinalizers( segment );
     }
+}
+
+/**
+ * Pure variants of C's memory allocation functions `malloc`, `calloc`, and
+ * `realloc` and deallocation function `free`.
+ *
+ * UNIX 98 requires that errno be set to ENOMEM upon failure.
+ * Purity is achieved by saving and restoring the value of `errno`, thus
+ * behaving as if it were never changed.
+ *
+ * See_Also:
+ *     $(LINK2 https://dlang.org/spec/function.html#pure-functions, D's rules for purity),
+ *     which allow for memory allocation under specific circumstances.
+ */
+void* pureMalloc(size_t size) @trusted pure @nogc nothrow
+{
+    const errnosave = fakePureErrno();
+    void* ret = fakePureMalloc(size);
+    fakePureErrno() = errnosave;
+    return ret;
+}
+/// ditto
+void* pureCalloc(size_t nmemb, size_t size) @trusted pure @nogc nothrow
+{
+    const errnosave = fakePureErrno();
+    void* ret = fakePureCalloc(nmemb, size);
+    fakePureErrno() = errnosave;
+    return ret;
+}
+/// ditto
+void* pureRealloc(void* ptr, size_t size) @system pure @nogc nothrow
+{
+    const errnosave = fakePureErrno();
+    void* ret = fakePureRealloc(ptr, size);
+    fakePureErrno() = errnosave;
+    return ret;
+}
+/// ditto
+void pureFree(void* ptr) @system pure @nogc nothrow
+{
+    const errnosave = fakePureErrno();
+    fakePureFree(ptr);
+    fakePureErrno() = errnosave;
+}
+
+///
+@system pure nothrow @nogc unittest
+{
+    ubyte[] fun(size_t n) pure
+    {
+        void* p = pureMalloc(n);
+        p !is null || n == 0 || assert(0);
+        scope(failure) p = pureRealloc(p, 0);
+        p = pureRealloc(p, n *= 2);
+        p !is null || n == 0 || assert(0);
+        return cast(ubyte[]) p[0 .. n];
+    }
+
+    auto buf = fun(100);
+    assert(buf.length == 200);
+    pureFree(buf.ptr);
+}
+
+@system pure nothrow @nogc unittest
+{
+    const int errno = fakePureErrno();
+
+    void* x = pureMalloc(10);            // normal allocation
+    assert(errno == fakePureErrno()); // errno shouldn't change
+    assert(x !is null);                   // allocation should succeed
+
+    x = pureRealloc(x, 10);              // normal reallocation
+    assert(errno == fakePureErrno()); // errno shouldn't change
+    assert(x !is null);                   // allocation should succeed
+
+    fakePureFree(x);
+
+    void* y = pureCalloc(10, 1);         // normal zeroed allocation
+    assert(errno == fakePureErrno()); // errno shouldn't change
+    assert(y !is null);                   // allocation should succeed
+
+    fakePureFree(y);
+
+    // Workaround bug in glibc 2.26
+    // See also: https://issues.dlang.org/show_bug.cgi?id=17956
+    void* z = pureMalloc(size_t.max & ~255); // won't affect `errno`
+    assert(errno == fakePureErrno()); // errno shouldn't change
+    assert(z is null);
+}
+
+// locally purified for internal use here only
+
+extern (C) private @system @nogc nothrow
+{
+    ref int fakePureErrnoImpl()
+    {
+        import core.stdc.errno;
+        return errno();
+    }
+}
+
+extern (C) private pure @system @nogc nothrow
+{
+    pragma(mangle, "fakePureErrnoImpl") ref int fakePureErrno();
+
+    pragma(mangle, "malloc") void* fakePureMalloc(size_t);
+    pragma(mangle, "calloc") void* fakePureCalloc(size_t nmemb, size_t size);
+    pragma(mangle, "realloc") void* fakePureRealloc(void* ptr, size_t size);
+
+    pragma(mangle, "free") void fakePureFree(void* ptr);
 }

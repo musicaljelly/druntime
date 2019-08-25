@@ -542,6 +542,85 @@ version( CRuntime_Glibc )
             mcontext_t  uc_mcontext;
         }
     }
+    else version (SPARC64)
+    {
+        enum MC_NGREG = 19;
+        alias mc_greg_t = c_ulong;
+        alias mc_gregset_t = mc_greg_t[MC_NGREG];
+
+        struct mc_fq
+        {
+            c_ulong* mcfq_addr;
+            uint     mcfq_insn;
+        }
+
+        struct mc_fpu_t
+        {
+            union mcfpu_fregs_t
+            {
+                uint[32]    sregs;
+                c_ulong[32] dregs;
+                real[16]    qregs;
+            }
+            mcfpu_fregs_t mcfpu_fregs;
+            c_ulong       mcfpu_fsr;
+            c_ulong       mcfpu_fprs;
+            c_ulong       mcfpu_gsr;
+            mc_fq*        mcfpu_fq;
+            ubyte         mcfpu_qcnt;
+            ubyte         mcfpu_qentsz;
+            ubyte         mcfpu_enab;
+        }
+
+        struct mcontext_t
+        {
+            mc_gregset_t mc_gregs;
+            mc_greg_t    mc_fp;
+            mc_greg_t    mc_i7;
+            mc_fpu_t     mc_fpregs;
+        }
+
+        struct ucontext_t
+        {
+            ucontext_t* uc_link;
+            c_ulong     uc_flags;
+            c_ulong     __uc_sigmask;
+            mcontext_t  uc_mcontext;
+            stack_t     uc_stack;
+            sigset_t    uc_sigmask;
+        }
+
+        /* Location of the users' stored registers relative to R0.
+         * Usage is as an index into a gregset_t array. */
+        enum
+        {
+            REG_PSR = 0,
+            REG_PC  = 1,
+            REG_nPC = 2,
+            REG_Y   = 3,
+            REG_G1  = 4,
+            REG_G2  = 5,
+            REG_G3  = 6,
+            REG_G4  = 7,
+            REG_G5  = 8,
+            REG_G6  = 9,
+            REG_G7  = 10,
+            REG_O0  = 11,
+            REG_O1  = 12,
+            REG_O2  = 13,
+            REG_O3  = 14,
+            REG_O4  = 15,
+            REG_O5  = 16,
+            REG_O6  = 17,
+            REG_O7  = 18,
+            REG_ASI = 19,
+            REG_FPRS = 20,
+        }
+
+        enum NGREG = 21;
+        alias greg_t = c_ulong;
+        alias gregset_t = greg_t[NGREG];
+    }
     else version (SystemZ)
     {
         public import core.sys.posix.signal : sigset_t;
@@ -699,6 +778,62 @@ else version( FreeBSD )
         stack_t         uc_stack;
         int             uc_flags;
         int[4]          __spare__;
+    }
+}
+else version(NetBSD)
+{
+
+    version( X86_64 )
+    {
+      enum { NGREG = 26 };
+      alias __greg_t = ulong;
+      alias __gregset_t = __greg_t[NGREG];
+      alias __fpregset_t = align(8)ubyte[512];
+
+      struct mcontext_t {
+        __gregset_t     __gregs;
+        __greg_t        _mc_tlsbase;
+        __fpregset_t    __fpregs;
+      }
+    }
+    else version( X86 )
+    {
+      enum { NGREG = 19 };
+      alias __greg_t = ulong;
+      alias __gregset_t = __greg_t[_NGREG];
+      struct __fpregset_t{
+        union __fp_reg_set{
+                struct __fpchip_state{
+                        int[27]     __fp_state; /* Environment and registers */
+                } ;       /* x87 regs in fsave format */
+                struct __fp_xmm_state{
+                        ubyte[512]    __fp_xmm;
+                } ;       /* x87 and xmm regs in fxsave format */
+                int[128]     __fp_fpregs;
+        };
+        __fpregset_t __fp_reg_set;
+        int[33]     __fp_pad;                   /* Historic padding */
+      };
+
+      struct mcontext_t {
+        __gregset_t     __gregs;
+        __fpregset_t    __fpregs;
+        __greg_t        _mc_tlsbase;
+      }
+    }
+
+    struct ucontext_t
+    {
+        uint    uc_flags;       /* properties */
+        ucontext_t *    uc_link;        /* context to resume */
+        sigset_t        uc_sigmask;     /* signals blocked in this context */
+        stack_t         uc_stack;       /* the stack used by this context */
+        mcontext_t      uc_mcontext;    /* machine state */
+        /+ todo #if defined(_UC_MACHINE_PAD)
+                long            __uc_pad[_UC_MACHINE_PAD];
+        #endif
+        +/
+
     }
 }
 else version ( Solaris )

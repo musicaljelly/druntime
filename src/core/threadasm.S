@@ -13,7 +13,7 @@
  *          http://www.boost.org/LICENSE_1_0.txt)
  */
 
-#if (defined(__linux__) || defined(__FreeBSD__)) && defined(__ELF__)
+#if (defined(__linux__) || defined(__FreeBSD__) || defined(__NetBSD__)) && defined(__ELF__)
 /*
  * Mark the resulting object file as not requiring execution permissions on
  * stack memory. The absence of this section would mark the whole resulting
@@ -52,7 +52,6 @@
 #if defined( USE_ABI_2 )
     .abiversion 2
 #endif
-    .globl  _D4core6thread18callWithStackShellFNbMDFPvZvZv
     .globl  _D4core6thread18callWithStackShellFNbMDFNbPvZvZv
     .align  2
     .type   _D4core6thread18callWithStackShellFNbMDFNbPvZvZv,@function
@@ -322,12 +321,12 @@ fiber_switchContext:
 #ifdef __mips_hard_float
 #define ALIGN8(val) (val + (-val & 7))
 #define BELOW (ALIGN8(6 * 8 + 4))
-    sdcl $f20, (0 * 8 - BELOW)($sp)
-    sdcl $f22, (1 * 8 - BELOW)($sp)
-    sdcl $f24, (2 * 8 - BELOW)($sp)
-    sdcl $f26, (3 * 8 - BELOW)($sp)
-    sdcl $f28, (4 * 8 - BELOW)($sp)
-    sdcl $f30, (5 * 8 - BELOW)($sp)
+    sdc1 $f20, (0 * 8 - BELOW)($sp)
+    sdc1 $f22, (1 * 8 - BELOW)($sp)
+    sdc1 $f24, (2 * 8 - BELOW)($sp)
+    sdc1 $f26, (3 * 8 - BELOW)($sp)
+    sdc1 $f28, (4 * 8 - BELOW)($sp)
+    sdc1 $f30, (5 * 8 - BELOW)($sp)
 #endif
     sw $ra, -4($sp)
 
@@ -347,12 +346,12 @@ fiber_switchContext:
     move $sp, $a1
 
 #ifdef __mips_hard_float
-    ldcl $f20, (0 * 8 - BELOW)($sp)
-    ldcl $f22, (1 * 8 - BELOW)($sp)
-    ldcl $f24, (2 * 8 - BELOW)($sp)
-    ldcl $f26, (3 * 8 - BELOW)($sp)
-    ldcl $f28, (4 * 8 - BELOW)($sp)
-    ldcl $f30, (5 * 8 - BELOW)($sp)
+    ldc1 $f20, (0 * 8 - BELOW)($sp)
+    ldc1 $f22, (1 * 8 - BELOW)($sp)
+    ldc1 $f24, (2 * 8 - BELOW)($sp)
+    ldc1 $f26, (3 * 8 - BELOW)($sp)
+    ldc1 $f28, (4 * 8 - BELOW)($sp)
+    ldc1 $f30, (5 * 8 - BELOW)($sp)
 #endif
     lw $ra, -4($sp)
 

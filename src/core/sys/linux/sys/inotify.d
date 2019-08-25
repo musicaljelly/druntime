@@ -18,6 +18,8 @@ struct inotify_event
     uint cookie;
     uint len;
     char[0] name;
+
+    @disable this(this);
 }
 
 enum: uint
@@ -87,6 +89,11 @@ else version (ARM)
     enum IN_NONBLOCK = 0x800; // octal!4000
 }
 else version (AArch64)
+{
+    enum IN_CLOEXEC = 0x80000; // octal!2000000
+    enum IN_NONBLOCK = 0x800; // octal!4000
+}
+else version (SPARC64)
 {
     enum IN_CLOEXEC = 0x80000; // octal!2000000
     enum IN_NONBLOCK = 0x800; // octal!4000

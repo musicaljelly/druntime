@@ -11,8 +11,8 @@ import std.conv;
 import std.file;
 import std.digest.sha;
 
-auto N = 50;
-auto NT = 4;
+__gshared int N = 2500;
+__gshared int NT = 4;
 
 __gshared ubyte[] BYTES;
 shared(int) running; // Atomic
@@ -53,5 +53,6 @@ void doSha()
         auto sha = new SHA1; // undefined identifier SHA512?
         sha.put(BYTES);
     }
-    running += -1;
+    import core.atomic : atomicOp;
+    atomicOp!"-="(running, 1);
 }

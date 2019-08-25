@@ -1,3 +1,4 @@
+#!/usr/bin/env rdmd
 /**
  * This is a driver script that runs the benchmarks.
  *
@@ -52,8 +53,9 @@ void runTests(Config cfg)
     string[] sources;
     string[string] extra_sources;
     auto re = regex(cfg.pattern, "g");
-    auto self = buildPath(".", "runbench.d");
-    foreach(DirEntry src; dirEntries(".", "*.d", SpanMode.depth))
+    auto cwd = __FILE_FULL_PATH__.dirName;
+    auto self = buildPath(cwd, "runbench.d");
+    foreach(DirEntry src; dirEntries(cwd, "*.d", SpanMode.depth))
     {
         if (!src.isFile || src.name == self || src.name.withExtension(".ignore").exists)
             continue;
@@ -68,13 +70,14 @@ void runTests(Config cfg)
             sources ~= src.name;
     }
 
-    immutable bindir = absolutePath("bin");
+    import std.parallelism : parallel;
+    immutable bindir = absolutePath("bin", cwd);
 
-    foreach(ref src; sources)
+    foreach(ref src; sources.parallel(1))
     {
         writeln("COMPILING ", src);
         version (Windows) enum exe = "exe"; else enum exe = "";
-        auto bin = buildPath(bindir, src.chompPrefix("./").setExtension(exe));
+        auto bin = buildPath(bindir, src.relativePath(cwd).setExtension(exe));
         auto cmd = std.string.format("%s %s -op -odobj -of%s %s", cfg.dmd, cfg.dflags, bin, src);
         if (auto ex = src in extra_sources)
             cmd ~= " -I" ~ src[0..$-2] ~ ".extra" ~ *ex;
@@ -84,46 +87,59 @@ void runTests(Config cfg)
 
     foreach(bin; sources)
     {
-        import std.datetime, std.algorithm : min;
+        import core.time : Duration;
+        import std.algorithm : min;
+        import std.datetime.stopwatch : AutoStart, StopWatch;
         auto sw = StopWatch(AutoStart.yes);
         auto minDur = Duration.max;
+        string minGCProf;
 
-        stdout.writef("R %-16s", bin.baseName.stripExtension);
-        if (cfg.verbose) stdout.writeln();
-        stdout.flush();
+        immutable benchName = bin.baseName.stripExtension;
+
+        void report(string pfx, Duration dur, string gcProf)
+        {
+            auto parts = dur.split!("seconds", "msecs");
+            if (gcProf.length)
+                writefln("%s %-16s %s.%03s s, %s", pfx, benchName, parts.seconds, parts.msecs, gcProf);
+            else
+                writefln("%s %-16s %s.%03s s", pfx, benchName, parts.seconds, parts.msecs);
+        }
 
         auto cmd = bin ~ " " ~ cfg.args;
-        string gcprof;
         foreach (_; 0 .. cfg.repeat)
         {
             sw.reset;
             auto output = runCmd(cmd, cfg.verbose);
             auto dur = cast(Duration)sw.peek;
+
+            auto parts = dur.split!("seconds", "msecs");
+
             if (cfg.verbose) stdout.write(output);
 
-            if (dur >= minDur) continue;
-            minDur = dur;
-
+            string gcProf;
             if (exists("gcx.log"))
             {
                 auto tgt = bin.setExtension("gcx.log");
                 rename("gcx.log", tgt);
                 auto lines = File(tgt, "r").byLine()
                     .find!(ln => ln.canFind("GC summary:"));
-                if (!lines.empty) gcprof = lines.front.find("GC summary:")[11..$].idup;
+                if (!lines.empty) gcProf = lines.front.find("GC summary:")[11..$].idup;
             }
             else
             {
                 auto lines = output.splitter(ctRegex!`\r\n|\r|\n`)
                     .find!(ln => ln.startsWith("GC summary:"));
-                if (!lines.empty) gcprof = lines.front[11..$];
+                if (!lines.empty) gcProf = lines.front[11..$];
+            }
+            if (cfg.verbose) report("RUN", dur, gcProf);
+
+            if (dur < minDur)
+            {
+                minDur = dur;
+                minGCProf = gcProf;
             }
         }
-        auto res = minDur.split!("seconds", "msecs");
-        if (gcprof.length)
-            writefln(" %s.%03s s, %s", res.seconds, res.msecs, gcprof);
-        else
-            writefln(" %s.%03s s", res.seconds, res.msecs, gcprof);
+        report("MIN", minDur, minGCProf);
     }
 }
 
@@ -162,6 +178,7 @@ Config parseArgs(string[] args)
            config.passThrough,
            "h|help", &cfg.help,
            "v|verbose", &cfg.verbose,
+           "dflags", &cfg.dflags,
            "r|repeat", &cfg.repeat);
 
     if (args.length >= 2 && !args[1].startsWith("-"))

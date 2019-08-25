@@ -5,7 +5,10 @@ MODEL=64
 VCDIR=\Program Files (x86)\Microsoft Visual Studio 10.0\VC
 SDKDIR=\Program Files (x86)\Microsoft SDKs\Windows\v7.0A
 
-DMD=dmd
+DMD_DIR=..\dmd
+BUILD=release
+OS=windows
+DMD=$(DMD_DIR)\generated\$(OS)\$(BUILD)\$(MODEL)\dmd
 
 CC="$(VCDIR)\bin\amd64\cl"
 LD="$(VCDIR)\bin\amd64\link"
@@ -17,8 +20,8 @@ IMPDIR=import
 
 MAKE=make
 
-DFLAGS=-m$(MODEL) -conf= -O -release -dip25 -inline -w -Isrc -Iimport
-UDFLAGS=-m$(MODEL) -conf= -O -release -dip25 -w -Isrc -Iimport
+DFLAGS=-m$(MODEL) -conf= -O -release -dip1000 -inline -w -Isrc -Iimport
+UDFLAGS=-m$(MODEL) -conf= -O -release -dip1000 -w -Isrc -Iimport
 DDOCFLAGS=-conf= -c -w -o- -Isrc -Iimport -version=CoreDdoc
 
 #CFLAGS=/O2 /I"$(VCDIR)"\INCLUDE /I"$(SDKDIR)"\Include
@@ -26,14 +29,13 @@ CFLAGS=/Z7 /I"$(VCDIR)"\INCLUDE /I"$(SDKDIR)"\Include
 
 DRUNTIME_BASE=druntime$(MODEL)
 DRUNTIME=lib\$(DRUNTIME_BASE).lib
-GCSTUB=lib\gcstub$(MODEL).obj
 
 # do not preselect a C runtime (extracted from the line above to make the auto tester happy)
 CFLAGS=$(CFLAGS) /Zl
 
 DOCFMT=
 
-target : import copydir copy $(DRUNTIME) $(GCSTUB)
+target : import copydir copy $(DRUNTIME)
 
 $(mak\COPY)
 $(mak\DOCS)
@@ -95,6 +97,9 @@ $(DOCDIR)\core_time.html : src\core\time.d
 $(DOCDIR)\core_vararg.html : src\core\vararg.d
 	$(DMD) $(DDOCFLAGS) -Df$@ $(DOCFMT) $**
 
+
+$(DOCDIR)\core_stdc_assert_.html : src\core\stdc\assert_.d
+	$(DMD) $(DDOCFLAGS) -Df$@ $(DOCFMT) $**
 
 $(DOCDIR)\core_stdc_complex.html : src\core\stdc\complex.d
 	$(DMD) $(DDOCFLAGS) -Df$@ $(DOCFMT) $**
@@ -274,10 +279,16 @@ $(IMPDIR)\core\vararg.d : src\core\vararg.d
 $(IMPDIR)\core\internal\abort.d : src\core\internal\abort.d
 	copy $** $@
 
+$(IMPDIR)\core\internal\arrayop.d : src\core\internal\arrayop.d
+	copy $** $@
+
 $(IMPDIR)\core\internal\convert.d : src\core\internal\convert.d
 	copy $** $@
 
 $(IMPDIR)\core\internal\hash.d : src\core\internal\hash.d
+	copy $** $@
+
+$(IMPDIR)\core\internal\parseoptions.d : src\core\internal\parseoptions.d
 	copy $** $@
 
 $(IMPDIR)\core\internal\spinlock.d : src\core\internal\spinlock.d
@@ -287,6 +298,9 @@ $(IMPDIR)\core\internal\string.d : src\core\internal\string.d
 	copy $** $@
 
 $(IMPDIR)\core\internal\traits.d : src\core\internal\traits.d
+	copy $** $@
+
+$(IMPDIR)\core\stdc\assert_.d : src\core\stdc\assert_.d
 	copy $** $@
 
 $(IMPDIR)\core\stdc\complex.d : src\core\stdc\complex.d
@@ -385,6 +399,9 @@ $(IMPDIR)\core\sys\darwin\mach\semaphore.d : src\core\sys\darwin\mach\semaphore.
 $(IMPDIR)\core\sys\darwin\mach\thread_act.d : src\core\sys\darwin\mach\thread_act.d
 	copy $** $@
 
+$(IMPDIR)\core\sys\darwin\netinet\in_.d : src\core\sys\darwin\netinet\in_.d
+	copy $** $@
+
 $(IMPDIR)\core\sys\darwin\sys\cdefs.d : src\core\sys\darwin\sys\cdefs.d
 	copy $** $@
 
@@ -404,6 +421,9 @@ $(IMPDIR)\core\sys\freebsd\pthread_np.d : src\core\sys\freebsd\pthread_np.d
 	copy $** $@
 
 $(IMPDIR)\core\sys\freebsd\time.d : src\core\sys\freebsd\time.d
+	copy $** $@
+
+$(IMPDIR)\core\sys\freebsd\netinet\in_.d : src\core\sys\freebsd\netinet\in_.d
 	copy $** $@
 
 $(IMPDIR)\core\sys\freebsd\sys\cdefs.d : src\core\sys\freebsd\sys\cdefs.d
@@ -481,7 +501,22 @@ $(IMPDIR)\core\sys\linux\tipc.d : src\core\sys\linux\tipc.d
 $(IMPDIR)\core\sys\linux\unistd.d : src\core\sys\linux\unistd.d
 	copy $** $@
 
+$(IMPDIR)\core\sys\linux\netinet\in_.d : src\core\sys\linux\netinet\in_.d
+	copy $** $@
+
+$(IMPDIR)\core\sys\linux\netinet\tcp.d : src\core\sys\linux\netinet\tcp.d
+	copy $** $@
+
+$(IMPDIR)\core\sys\linux\sys\netinet\tcp.d : src\core\sys\linux\sys\netinet\tcp.d
+	copy $** $@
+
 $(IMPDIR)\core\sys\linux\sys\auxv.d : src\core\sys\linux\sys\auxv.d
+	copy $** $@
+
+$(IMPDIR)\core\sys\linux\sys\eventfd.d : src\core\sys\linux\sys\eventfd.d
+	copy $** $@
+
+$(IMPDIR)\core\sys\linux\sys\file.d : src\core\sys\linux\sys\file.d
 	copy $** $@
 
 $(IMPDIR)\core\sys\linux\sys\inotify.d : src\core\sys\linux\sys\inotify.d
@@ -491,9 +526,6 @@ $(IMPDIR)\core\sys\linux\sys\prctl.d : src\core\sys\linux\sys\prctl.d
 	copy $** $@
 
 $(IMPDIR)\core\sys\linux\sys\mman.d : src\core\sys\linux\sys\mman.d
-	copy $** $@
-
-$(IMPDIR)\core\sys\linux\sys\netinet\tcp.d : src\core\sys\linux\sys\netinet\tcp.d
 	copy $** $@
 
 $(IMPDIR)\core\sys\linux\sys\signalfd.d : src\core\sys\linux\sys\signalfd.d
@@ -1242,20 +1274,14 @@ msvc_$(MODEL).obj : src\rt\msvc.c win64.mak
 msvc_math_$(MODEL).obj : src\rt\msvc_math.c win64.mak
 	$(CC) -c -Fo$@ $(CFLAGS) src\rt\msvc_math.c
 
-################### gcstub generation #########################
-
-$(GCSTUB) : src\gcstub\gc.d win64.mak
-	$(DMD) -c -of$(GCSTUB) src\gcstub\gc.d $(DFLAGS)
-
-
 ################### Library generation #########################
 
 $(DRUNTIME): $(OBJS) $(SRCS) win64.mak
-	$(DMD) -lib -of$(DRUNTIME) -Xfdruntime.json $(DFLAGS) $(SRCS) $(OBJS)
+	*$(DMD) -lib -of$(DRUNTIME) -Xfdruntime.json $(DFLAGS) $(SRCS) $(OBJS)
 
 # due to -conf= on the command line, LINKCMD and LIB need to be set in the environment
 unittest : $(SRCS) $(DRUNTIME)
-	$(DMD) $(UDFLAGS) -version=druntime_unittest -unittest -ofunittest.exe -main $(SRCS) $(DRUNTIME) -debuglib=$(DRUNTIME) -defaultlib=$(DRUNTIME) user32.lib
+	*$(DMD) $(UDFLAGS) -version=druntime_unittest -unittest -ofunittest.exe -main $(SRCS) $(DRUNTIME) -debuglib=$(DRUNTIME) -defaultlib=$(DRUNTIME) user32.lib
 	unittest
 
 ################### Win32 COFF support #########################
@@ -1283,10 +1309,9 @@ install: druntime.zip
 	unzip -o druntime.zip -d \dmd2\src\druntime
 
 clean:
-	del $(DRUNTIME) $(OBJS_TO_DELETE) $(GCSTUB)
+	del $(DRUNTIME) $(OBJS_TO_DELETE)
 	rmdir /S /Q $(DOCDIR) $(IMPDIR)
 
 auto-tester-build: target
 
 auto-tester-test: unittest
-

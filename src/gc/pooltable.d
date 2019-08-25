@@ -55,14 +55,14 @@ nothrow:
 
     ref inout(Pool*) opIndex(size_t idx) inout pure
     in { assert(idx < length); }
-    body
+    do
     {
         return pools[idx];
     }
 
     inout(Pool*)[] opSlice(size_t a, size_t b) inout pure
     in { assert(a <= length && b <= length); }
-    body
+    do
     {
         return pools[a .. b];
     }
@@ -155,13 +155,13 @@ nothrow:
         assert(_maxAddr == pools[npools - 1].topAddr);
     }
 
-    @property const(byte)* minAddr() pure const { return _minAddr; }
-    @property const(byte)* maxAddr() pure const { return _maxAddr; }
+    @property const(void)* minAddr() pure const { return _minAddr; }
+    @property const(void)* maxAddr() pure const { return _maxAddr; }
 
 package:
     Pool** pools;
     size_t npools;
-    byte* _minAddr, _maxAddr;
+    void* _minAddr, _maxAddr;
 }
 
 unittest

@@ -1,5 +1,6 @@
 COPY=\
 	$(IMPDIR)\object.d \
+	\
 	$(IMPDIR)\core\atomic.d \
 	$(IMPDIR)\core\attribute.d \
 	$(IMPDIR)\core\bitop.d \
@@ -16,12 +17,15 @@ COPY=\
 	$(IMPDIR)\core\vararg.d \
 	\
 	$(IMPDIR)\core\internal\abort.d \
+	$(IMPDIR)\core\internal\arrayop.d \
 	$(IMPDIR)\core\internal\convert.d \
 	$(IMPDIR)\core\internal\hash.d \
+	$(IMPDIR)\core\internal\parseoptions.d \
 	$(IMPDIR)\core\internal\spinlock.d \
 	$(IMPDIR)\core\internal\string.d \
 	$(IMPDIR)\core\internal\traits.d \
 	\
+	$(IMPDIR)\core\stdc\assert_.d \
 	$(IMPDIR)\core\stdc\complex.d \
 	$(IMPDIR)\core\stdc\config.d \
 	$(IMPDIR)\core\stdc\ctype.d \
@@ -59,12 +63,16 @@ COPY=\
 	$(IMPDIR)\core\sys\darwin\mach\semaphore.d \
 	$(IMPDIR)\core\sys\darwin\mach\thread_act.d \
 	\
+	$(IMPDIR)\core\sys\darwin\netinet\in_.d \
+	\
 	$(IMPDIR)\core\sys\darwin\sys\cdefs.d \
 	$(IMPDIR)\core\sys\darwin\sys\event.d \
 	$(IMPDIR)\core\sys\darwin\sys\mman.d \
 	\
 	$(IMPDIR)\core\sys\freebsd\dlfcn.d \
 	$(IMPDIR)\core\sys\freebsd\execinfo.d \
+	\
+	$(IMPDIR)\core\sys\freebsd\netinet\in_.d \
 	\
 	$(IMPDIR)\core\sys\freebsd\sys\cdefs.d \
 	$(IMPDIR)\core\sys\freebsd\pthread_np.d \
@@ -95,10 +103,15 @@ COPY=\
 	$(IMPDIR)\core\sys\linux\tipc.d \
 	$(IMPDIR)\core\sys\linux\unistd.d \
 	\
+	$(IMPDIR)\core\sys\linux\netinet\in_.d \
+	$(IMPDIR)\core\sys\linux\netinet\tcp.d \
+	$(IMPDIR)\core\sys\linux\sys\netinet\tcp.d \
+	\
 	$(IMPDIR)\core\sys\linux\sys\auxv.d \
+	$(IMPDIR)\core\sys\linux\sys\eventfd.d \
+	$(IMPDIR)\core\sys\linux\sys\file.d \
 	$(IMPDIR)\core\sys\linux\sys\inotify.d \
 	$(IMPDIR)\core\sys\linux\sys\mman.d \
-	$(IMPDIR)\core\sys\linux\sys\netinet\tcp.d \
 	$(IMPDIR)\core\sys\linux\sys\signalfd.d \
 	$(IMPDIR)\core\sys\linux\sys\socket.d \
 	$(IMPDIR)\core\sys\linux\sys\sysinfo.d \

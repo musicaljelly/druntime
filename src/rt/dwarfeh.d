@@ -13,6 +13,7 @@ module rt.dwarfeh;
 
 version (Posix):
 
+import rt.dmain2: _d_print_throwable;
 import rt.unwind;
 import core.stdc.stdio;
 import core.stdc.stdlib;
@@ -157,7 +158,7 @@ extern(C) Throwable __dmd_begin_catch(_Unwind_Exception* exceptionObject)
  * Returns:
  *      previous value of stack
  */
-extern(C) void* _d_eh_swapContextDwarf(void* newContext) nothrow
+extern(C) void* _d_eh_swapContextDwarf(void* newContext) nothrow @nogc
 {
     auto old = ExceptionHeader.stack;
     ExceptionHeader.stack = cast(ExceptionHeader*)newContext;
@@ -181,6 +182,12 @@ extern(C) void _d_throwdwarf(Throwable o)
 
     eh.push();  // add to thrown exception stack
     //printf("_d_throwdwarf: eh = %p, eh.next = %p\n", eh, eh.next);
+
+    /* Increment reference count if `o` is a refcounted Throwable
+     */
+    auto refcount = o.refcount();
+    if (refcount)       // non-zero means it's refcounted
+        o.refcount() = refcount + 1;
 
     /* Called by unwinder when exception object needs destruction by other than our code.
      */
@@ -217,11 +224,13 @@ extern(C) void _d_throwdwarf(Throwable o)
         case _URC_END_OF_STACK:
             /* Unwound the stack without encountering a catch clause.
              * In C++, this would mean call uncaught_exception().
-             * In D, this should never happen since everything is enclosed
-             * by a top-level try/catch.
+             * In D, this can happen only if `rt_trapException` is cleared
+             * since otherwise everything is enclosed by a top-level
+             * try/catch.
              */
             fprintf(stderr, "uncaught exception\n");
-            terminate(__LINE__);                          // should never happen
+            _d_print_throwable(o);
+            abort();
             assert(0);
 
         case _URC_FATAL_PHASE1_ERROR:

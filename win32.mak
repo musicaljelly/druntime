@@ -2,26 +2,28 @@
 
 MODEL=32
 
-DMD=dmd
+DMD_DIR=..\dmd
+BUILD=release
+OS=windows
+DMD=$(DMD_DIR)\generated\$(OS)\$(BUILD)\$(MODEL)\dmd
 
 CC=dmc
 
 DOCDIR=doc
 IMPDIR=import
 
-DFLAGS=-m$(MODEL) -conf= -O -release -dip25 -inline -w -Isrc -Iimport
-UDFLAGS=-m$(MODEL) -conf= -O -release -dip25 -w -Isrc -Iimport
+DFLAGS=-m$(MODEL) -conf= -O -release -dip1000 -inline -w -Isrc -Iimport
+UDFLAGS=-m$(MODEL) -conf= -O -release -dip1000 -w -Isrc -Iimport
 DDOCFLAGS=-conf= -c -w -o- -Isrc -Iimport -version=CoreDdoc
 
 CFLAGS=
 
 DRUNTIME_BASE=druntime
 DRUNTIME=lib\$(DRUNTIME_BASE).lib
-GCSTUB=lib\gcstub.obj
 
 DOCFMT=
 
-target : import copydir copy $(DRUNTIME) $(GCSTUB)
+target : import copydir copy $(DRUNTIME)
 
 $(mak\COPY)
 $(mak\DOCS)
@@ -83,6 +85,9 @@ $(DOCDIR)\core_time.html : src\core\time.d
 	$(DMD) $(DDOCFLAGS) -Df$@ $(DOCFMT) $**
 
 $(DOCDIR)\core_vararg.html : src\core\vararg.d
+	$(DMD) $(DDOCFLAGS) -Df$@ $(DOCFMT) $**
+
+$(DOCDIR)\core_stdc_assert_.html : src\core\stdc\assert_.d
 	$(DMD) $(DDOCFLAGS) -Df$@ $(DOCFMT) $**
 
 $(DOCDIR)\core_stdc_complex.html : src\core\stdc\complex.d
@@ -263,10 +268,16 @@ $(IMPDIR)\core\vararg.d : src\core\vararg.d
 $(IMPDIR)\core\internal\abort.d : src\core\internal\abort.d
 	copy $** $@
 
+$(IMPDIR)\core\internal\arrayop.d : src\core\internal\arrayop.d
+	copy $** $@
+
 $(IMPDIR)\core\internal\convert.d : src\core\internal\convert.d
 	copy $** $@
 
 $(IMPDIR)\core\internal\hash.d : src\core\internal\hash.d
+	copy $** $@
+
+$(IMPDIR)\core\internal\parseoptions.d : src\core\internal\parseoptions.d
 	copy $** $@
 
 $(IMPDIR)\core\internal\spinlock.d : src\core\internal\spinlock.d
@@ -276,6 +287,9 @@ $(IMPDIR)\core\internal\string.d : src\core\internal\string.d
 	copy $** $@
 
 $(IMPDIR)\core\internal\traits.d : src\core\internal\traits.d
+	copy $** $@
+
+$(IMPDIR)\core\stdc\assert_.d : src\core\stdc\assert_.d
 	copy $** $@
 
 $(IMPDIR)\core\stdc\complex.d : src\core\stdc\complex.d
@@ -374,6 +388,9 @@ $(IMPDIR)\core\sys\darwin\mach\semaphore.d : src\core\sys\darwin\mach\semaphore.
 $(IMPDIR)\core\sys\darwin\mach\thread_act.d : src\core\sys\darwin\mach\thread_act.d
 	copy $** $@
 
+$(IMPDIR)\core\sys\darwin\netinet\in_.d : src\core\sys\darwin\netinet\in_.d
+	copy $** $@
+
 $(IMPDIR)\core\sys\darwin\sys\cdefs.d : src\core\sys\darwin\sys\cdefs.d
 	copy $** $@
 
@@ -393,6 +410,9 @@ $(IMPDIR)\core\sys\freebsd\pthread_np.d : src\core\sys\freebsd\pthread_np.d
 	copy $** $@
 
 $(IMPDIR)\core\sys\freebsd\time.d : src\core\sys\freebsd\time.d
+	copy $** $@
+
+$(IMPDIR)\core\sys\freebsd\netinet\in_.d : src\core\sys\freebsd\netinet\in_.d
 	copy $** $@
 
 $(IMPDIR)\core\sys\freebsd\sys\cdefs.d : src\core\sys\freebsd\sys\cdefs.d
@@ -470,7 +490,22 @@ $(IMPDIR)\core\sys\linux\tipc.d : src\core\sys\linux\tipc.d
 $(IMPDIR)\core\sys\linux\unistd.d : src\core\sys\linux\unistd.d
 	copy $** $@
 
+$(IMPDIR)\core\sys\linux\netinet\in_.d : src\core\sys\linux\netinet\in_.d
+	copy $** $@
+
+$(IMPDIR)\core\sys\linux\netinet\tcp.d : src\core\sys\linux\netinet\tcp.d
+	copy $** $@
+
+$(IMPDIR)\core\sys\linux\sys\netinet\tcp.d : src\core\sys\linux\sys\netinet\tcp.d
+	copy $** $@
+
 $(IMPDIR)\core\sys\linux\sys\auxv.d : src\core\sys\linux\sys\auxv.d
+	copy $** $@
+
+$(IMPDIR)\core\sys\linux\sys\eventfd.d : src\core\sys\linux\sys\eventfd.d
+	copy $** $@
+
+$(IMPDIR)\core\sys\linux\sys\file.d : src\core\sys\linux\sys\file.d
 	copy $** $@
 
 $(IMPDIR)\core\sys\linux\sys\inotify.d : src\core\sys\linux\sys\inotify.d
@@ -480,9 +515,6 @@ $(IMPDIR)\core\sys\linux\sys\prctl.d : src\core\sys\linux\sys\prctl.d
 	copy $** $@
 
 $(IMPDIR)\core\sys\linux\sys\mman.d : src\core\sys\linux\sys\mman.d
-	copy $** $@
-
-$(IMPDIR)\core\sys\linux\sys\netinet\tcp.d : src\core\sys\linux\sys\netinet\tcp.d
 	copy $** $@
 
 $(IMPDIR)\core\sys\linux\sys\signalfd.d : src\core\sys\linux\sys\signalfd.d
@@ -1270,18 +1302,13 @@ errno_c_$(MODEL).obj : src\core\stdc\errno.c
 rebuild_minit_obj : src\rt\minit.asm
 	$(CC) -c $(CFLAGS) src\rt\minit.asm
 
-################### gcstub generation #########################
-
-$(GCSTUB) : src\gcstub\gc.d win$(MODEL).mak
-	$(DMD) -c -of$(GCSTUB) src\gcstub\gc.d $(DFLAGS)
-
 ################### Library generation #########################
 
 $(DRUNTIME): $(OBJS) $(SRCS) win$(MODEL).mak
-	$(DMD) -lib -of$(DRUNTIME) -Xfdruntime.json $(DFLAGS) $(SRCS) $(OBJS)
+	*$(DMD) -lib -of$(DRUNTIME) -Xfdruntime.json $(DFLAGS) $(SRCS) $(OBJS)
 
 unittest : $(SRCS) $(DRUNTIME)
-	$(DMD) $(UDFLAGS) -L/co -unittest -ofunittest.exe -main $(SRCS) $(DRUNTIME) -debuglib=$(DRUNTIME) -defaultlib=$(DRUNTIME)
+	*$(DMD) $(UDFLAGS) -L/co -unittest -ofunittest.exe -main $(SRCS) $(DRUNTIME) -debuglib=$(DRUNTIME) -defaultlib=$(DRUNTIME)
 	unittest
 
 zip: druntime.zip
@@ -1296,10 +1323,9 @@ install: druntime.zip
 	unzip -o druntime.zip -d \dmd2\src\druntime
 
 clean:
-	del $(DRUNTIME) $(OBJS_TO_DELETE) $(GCSTUB)
+	del $(DRUNTIME) $(OBJS_TO_DELETE)
 	rmdir /S /Q $(DOCDIR) $(IMPDIR)
 
 auto-tester-build: target
 
 auto-tester-test: unittest
-

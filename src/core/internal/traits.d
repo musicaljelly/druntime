@@ -187,3 +187,46 @@ template hasElaborateCopyConstructor(T...)
     else
         enum bool hasElaborateCopyConstructor = false;
 }
+
+// std.meta.Filter
+template Filter(alias pred, TList...)
+{
+    static if (TList.length == 0)
+    {
+        alias Filter = TypeTuple!();
+    }
+    else static if (TList.length == 1)
+    {
+        static if (pred!(TList[0]))
+            alias Filter = TypeTuple!(TList[0]);
+        else
+            alias Filter = TypeTuple!();
+    }
+    else
+    {
+        alias Filter =
+            TypeTuple!(
+                Filter!(pred, TList[ 0  .. $/2]),
+                Filter!(pred, TList[$/2 ..  $ ]));
+    }
+}
+
+// std.meta.staticMap
+template staticMap(alias F, T...)
+{
+    static if (T.length == 0)
+    {
+        alias staticMap = TypeTuple!();
+    }
+    else static if (T.length == 1)
+    {
+        alias staticMap = TypeTuple!(F!(T[0]));
+    }
+    else
+    {
+        alias staticMap =
+            TypeTuple!(
+                staticMap!(F, T[ 0  .. $/2]),
+                staticMap!(F, T[$/2 ..  $ ]));
+    }
+}

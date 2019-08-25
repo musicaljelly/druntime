@@ -15,14 +15,23 @@ nothrow:
 
 alias UnsignedStringBuf = char[20];
 
-char[] unsignedToTempString(ulong value, char[] buf, uint radix = 10) @safe
+char[] unsignedToTempString(ulong value, return char[] buf, uint radix = 10) @safe
 {
     size_t i = buf.length;
     do
     {
-        ubyte x = cast(ubyte)(value % radix);
-        value = value / radix;
-        buf[--i] = cast(char)((x < 10) ? x + '0' : x - 10 + 'a');
+        if (value < radix)
+        {
+            ubyte x = cast(ubyte)value;
+            buf[--i] = cast(char)((x < 10) ? x + '0' : x - 10 + 'a');
+            break;
+        }
+        else
+        {
+            ubyte x = cast(ubyte)(value % radix);
+            value = value / radix;
+            buf[--i] = cast(char)((x < 10) ? x + '0' : x - 10 + 'a');
+        }
     } while (value);
     return buf[i .. $];
 }
@@ -39,7 +48,7 @@ private struct TempStringNoAlloc
     alias get this;
 }
 
-auto unsignedToTempString(ulong value, uint radix) @safe
+auto unsignedToTempString(ulong value, uint radix = 10) @safe
 {
     TempStringNoAlloc result = void;
     result._len = unsignedToTempString(value, result._buf, radix).length & 0xff;
@@ -59,17 +68,17 @@ unittest
 
     // use stack allocated struct version
     assert(0.unsignedToTempString(10) == "0");
-    assert(1.unsignedToTempString(10) == "1");
-    assert(12.unsignedToTempString(10) == "12");
+    assert(1.unsignedToTempString == "1");
+    assert(12.unsignedToTempString == "12");
     assert(0x12ABCF .unsignedToTempString(16) == "12abcf");
-    assert(long.sizeof.unsignedToTempString(10) == "8");
-    assert(uint.max.unsignedToTempString(10) == "4294967295");
-    assert(ulong.max.unsignedToTempString(10) == "18446744073709551615");
+    assert(long.sizeof.unsignedToTempString == "8");
+    assert(uint.max.unsignedToTempString == "4294967295");
+    assert(ulong.max.unsignedToTempString == "18446744073709551615");
 }
 
 alias SignedStringBuf = char[20];
 
-auto signedToTempString(long value, char[] buf, uint radix) @safe
+char[] signedToTempString(long value, return char[] buf, uint radix = 10) @safe
 {
     bool neg = value < 0;
     if(neg)
@@ -78,14 +87,14 @@ auto signedToTempString(long value, char[] buf, uint radix) @safe
     if(neg)
     {
         // about to do a slice without a bounds check
-        auto trustedSlice() @trusted { assert(r.ptr > buf.ptr); return (r.ptr-1)[0..r.length+1]; }
-        r = trustedSlice();
+        auto trustedSlice(return char[] r) @trusted { assert(r.ptr > buf.ptr); return (r.ptr-1)[0..r.length+1]; }
+        r = trustedSlice(r);
         r[0] = '-';
     }
     return r;
 }
 
-auto signedToTempString(long value, uint radix) @safe
+auto signedToTempString(long value, uint radix = 10) @safe
 {
     bool neg = value < 0;
     if(neg)
@@ -103,31 +112,31 @@ unittest
 {
     SignedStringBuf buf;
     assert(0.signedToTempString(buf, 10) == "0");
-    assert(1.signedToTempString(buf, 10) == "1");
-    assert((-1).signedToTempString(buf, 10) == "-1");
-    assert(12.signedToTempString(buf, 10) == "12");
-    assert((-12).signedToTempString(buf, 10) == "-12");
+    assert(1.signedToTempString(buf) == "1");
+    assert((-1).signedToTempString(buf) == "-1");
+    assert(12.signedToTempString(buf) == "12");
+    assert((-12).signedToTempString(buf) == "-12");
     assert(0x12ABCF .signedToTempString(buf, 16) == "12abcf");
     assert((-0x12ABCF) .signedToTempString(buf, 16) == "-12abcf");
-    assert(long.sizeof.signedToTempString(buf, 10) == "8");
-    assert(int.max.signedToTempString(buf, 10) == "2147483647");
-    assert(int.min.signedToTempString(buf, 10) == "-2147483648");
-    assert(long.max.signedToTempString(buf, 10) == "9223372036854775807");
-    assert(long.min.signedToTempString(buf, 10) == "-9223372036854775808");
+    assert(long.sizeof.signedToTempString(buf) == "8");
+    assert(int.max.signedToTempString(buf) == "2147483647");
+    assert(int.min.signedToTempString(buf) == "-2147483648");
+    assert(long.max.signedToTempString(buf) == "9223372036854775807");
+    assert(long.min.signedToTempString(buf) == "-9223372036854775808");
 
     // use stack allocated struct version
     assert(0.signedToTempString(10) == "0");
-    assert(1.signedToTempString(10) == "1");
-    assert((-1).signedToTempString(10) == "-1");
-    assert(12.signedToTempString(10) == "12");
-    assert((-12).signedToTempString(10) == "-12");
+    assert(1.signedToTempString == "1");
+    assert((-1).signedToTempString == "-1");
+    assert(12.signedToTempString == "12");
+    assert((-12).signedToTempString == "-12");
     assert(0x12ABCF .signedToTempString(16) == "12abcf");
     assert((-0x12ABCF) .signedToTempString(16) == "-12abcf");
-    assert(long.sizeof.signedToTempString(10) == "8");
-    assert(int.max.signedToTempString(10) == "2147483647");
-    assert(int.min.signedToTempString(10) == "-2147483648");
-    assert(long.max.signedToTempString(10) == "9223372036854775807");
-    assert(long.min.signedToTempString(10) == "-9223372036854775808");
+    assert(long.sizeof.signedToTempString == "8");
+    assert(int.max.signedToTempString == "2147483647");
+    assert(int.min.signedToTempString == "-2147483648");
+    assert(long.max.signedToTempString == "9223372036854775807");
+    assert(long.min.signedToTempString == "-9223372036854775808");
     assert(long.max.signedToTempString(2) == "111111111111111111111111111111111111111111111111111111111111111");
     assert(long.min.signedToTempString(2) == "-1000000000000000000000000000000000000000000000000000000000000000");
 }
@@ -190,18 +199,24 @@ unittest
     assert(3.numDigits!2 == 2);
 }
 
-int dstrcmp( in char[] s1, in char[] s2 ) @trusted
+int dstrcmp( scope const char[] s1, scope const char[] s2 ) @trusted
 {
-    import core.stdc.string : memcmp;
+    immutable len = s1.length <= s2.length ? s1.length : s2.length;
+    if (__ctfe)
+    {
+        foreach (const u; 0 .. len)
+        {
+            if (s1[u] != s2[u])
+                return s1[u] > s2[u] ? 1 : -1;
+        }
+    }
+    else
+    {
+        import core.stdc.string : memcmp;
 
-    int  ret = 0;
-    auto len = s1.length;
-    if( s2.length < len )
-        len = s2.length;
-    if( 0 != (ret = memcmp( s1.ptr, s2.ptr, len )) )
-        return ret;
-    return s1.length >  s2.length ? 1 :
-           s1.length == s2.length ? 0 : -1;
+        const ret = memcmp( s1.ptr, s2.ptr, len );
+        if( ret )
+            return ret;
+    }
+    return s1.length < s2.length ? -1 : (s1.length > s2.length);
 }
-
-

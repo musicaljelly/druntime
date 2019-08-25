@@ -12,6 +12,7 @@ version (linux):
 
 extern (C):
 @system:
+@nogc:
 nothrow:
 
 enum
@@ -95,7 +96,23 @@ else version (PPC64)
         epoll_data_t data;
     }
 }
+else version (MIPS32)
+{
+    struct epoll_event
+    {
+        uint events;
+        epoll_data_t data;
+    }
+}
 else version (MIPS64)
+{
+    struct epoll_event
+    {
+        uint events;
+        epoll_data_t data;
+    }
+}
+else version (SPARC64)
 {
     struct epoll_event
     {

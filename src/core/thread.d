@@ -1,4 +1,4 @@
-﻿/**
+/**
  * The thread module provides support for thread creation and management.
  *
  * Copyright: Copyright Sean Kelly 2005 - 2012.
@@ -29,8 +29,8 @@ private
     // interface to rt.tlsgc
     import core.internal.traits : externDFunc;
 
-    alias rt_tlsgc_init = externDFunc!("rt.tlsgc.init", void* function());
-    alias rt_tlsgc_destroy = externDFunc!("rt.tlsgc.destroy", void function(void*));
+    alias rt_tlsgc_init = externDFunc!("rt.tlsgc.init", void* function() nothrow @nogc);
+    alias rt_tlsgc_destroy = externDFunc!("rt.tlsgc.destroy", void function(void*) nothrow @nogc);
 
     alias ScanDg = void delegate(void* pstart, void* pend) nothrow;
     alias rt_tlsgc_scan =
@@ -60,11 +60,11 @@ version = StackGrowsDown;
  */
 version(Posix)
 {
-    alias core.sys.posix.unistd.getpid getpid;
+    alias getpid = core.sys.posix.unistd.getpid;
 }
 else version (Windows)
 {
-    alias core.sys.windows.windows.GetCurrentProcessId getpid;
+    alias getpid = core.sys.windows.windows.GetCurrentProcessId;
 }
 
 
@@ -125,17 +125,17 @@ private
      *         where the stack was last swapped out, or null when a fiber stack
      *         is switched in for the first time.
      */
-    extern(C) void* _d_eh_swapContext(void* newContext) nothrow;
+    extern(C) void* _d_eh_swapContext(void* newContext) nothrow @nogc;
 
     version (DigitalMars)
     {
         version (Windows)
-            alias _d_eh_swapContext swapContext;
+            alias swapContext = _d_eh_swapContext;
         else
         {
-            extern(C) void* _d_eh_swapContextDwarf(void* newContext) nothrow;
+            extern(C) void* _d_eh_swapContextDwarf(void* newContext) nothrow @nogc;
 
-            void* swapContext(void* newContext) nothrow
+            void* swapContext(void* newContext) nothrow @nogc
             {
                 /* Detect at runtime which scheme is being used.
                  * Eventually, determine it statically.
@@ -169,7 +169,7 @@ private
         }
     }
     else
-        alias _d_eh_swapContext swapContext;
+        alias swapContext = _d_eh_swapContext;
 }
 
 
@@ -187,13 +187,13 @@ version( Windows )
         import core.sys.windows.windows;
         import core.sys.windows.threadaux;   // for OpenThreadHandle
 
-        extern (Windows) alias uint function(void*) btex_fptr;
+        extern (Windows) alias btex_fptr = uint function(void*);
         extern (C) uintptr_t _beginthreadex(void*, uint, btex_fptr, void*, uint, uint*) nothrow;
 
         //
         // Entry point for Windows threads
         //
-        extern (Windows) uint thread_entryPoint( void* arg )
+        extern (Windows) uint thread_entryPoint( void* arg ) nothrow
         {
             Thread  obj = cast(Thread) arg;
             assert( obj );
@@ -223,6 +223,8 @@ version( Windows )
 
             void append( Throwable t )
             {
+                if (t.refcount())
+                    ++t.refcount();
                 if( obj.m_unhandled is null )
                     obj.m_unhandled = t;
                 else
@@ -273,7 +275,7 @@ version( Windows )
         }
 
 
-        HANDLE GetCurrentThreadHandle()
+        HANDLE GetCurrentThreadHandle() nothrow @nogc
         {
             const uint DUPLICATE_SAME_ACCESS = 0x00000002;
 
@@ -311,11 +313,10 @@ else version( Posix )
         //
         // Entry point for POSIX threads
         //
-        extern (C) void* thread_entryPoint( void* arg )
+        extern (C) void* thread_entryPoint( void* arg ) nothrow
         {
             version (Shared)
             {
-                import rt.sections;
                 Thread obj = cast(Thread)(cast(void**)arg)[0];
                 auto loadedLibraries = (cast(void**)arg)[1];
                 .free(arg);
@@ -328,7 +329,11 @@ else version( Posix )
 
             // loadedLibraries need to be inherited from parent thread
             // before initilizing GC for TLS (rt_tlsgc_init)
-            version (Shared) inheritLoadedLibraries(loadedLibraries);
+            version (Shared)
+            {
+                externDFunc!("rt.sections_elf_shared.inheritLoadedLibraries",
+                             void function(void*) @nogc nothrow)(loadedLibraries);
+            }
 
             assert( obj.m_curr is &obj.m_main );
             obj.m_main.bstack = getStackBottom();
@@ -390,6 +395,8 @@ else version( Posix )
 
             void append( Throwable t )
             {
+                if (t.refcount())
+                    ++t.refcount();
                 if( obj.m_unhandled is null )
                     obj.m_unhandled = t;
                 else
@@ -413,7 +420,11 @@ else version( Posix )
                     append( t );
                 }
                 rt_moduleTlsDtor();
-                version (Shared) cleanupLoadedLibraries();
+                version (Shared)
+                {
+                    externDFunc!("rt.sections_elf_shared.cleanupLoadedLibraries",
+                                 void function() @nogc nothrow)();
+                }
             }
             catch( Throwable t )
             {
@@ -446,7 +457,7 @@ else version( Posix )
         {
             assert( sig == suspendSignalNumber );
         }
-        body
+        do
         {
             void op(void* sp) nothrow
             {
@@ -503,7 +514,7 @@ else version( Posix )
         {
             assert( sig == resumeSignalNumber );
         }
-        body
+        do
         {
 
         }
@@ -573,15 +584,15 @@ class Thread
      * In:
      *  fn must not be null.
      */
-    this( void function() fn, size_t sz = 0 )
+    this( void function() fn, size_t sz = 0 ) @safe pure nothrow @nogc
     in
     {
         assert( fn );
     }
-    body
+    do
     {
         this(sz);
-        m_fn   = fn;
+        () @trusted { m_fn   = fn; }();
         m_call = Call.FN;
         m_curr = &m_main;
     }
@@ -598,15 +609,15 @@ class Thread
      * In:
      *  dg must not be null.
      */
-    this( void delegate() dg, size_t sz = 0 )
+    this( void delegate() dg, size_t sz = 0 ) @safe pure nothrow @nogc
     in
     {
         assert( dg );
     }
-    body
+    do
     {
         this(sz);
-        m_dg   = dg;
+        () @trusted { m_dg   = dg; }();
         m_call = Call.DG;
         m_curr = &m_main;
     }
@@ -615,7 +626,7 @@ class Thread
     /**
      * Cleans up any remaining resources used by this object.
      */
-    ~this()
+    ~this() nothrow @nogc
     {
         if( m_addr == m_addr.init )
         {
@@ -662,7 +673,7 @@ class Thread
     {
         assert( !next && !prev );
     }
-    body
+    do
     {
         auto wasThreaded  = multiThreadedFlag;
         multiThreadedFlag = true;
@@ -721,15 +732,17 @@ class Thread
 
                 version (Shared)
                 {
-                    import rt.sections;
-                    auto libs = pinLoadedLibraries();
+                    auto libs = externDFunc!("rt.sections_elf_shared.pinLoadedLibraries",
+                                             void* function() @nogc nothrow)();
+
                     auto ps = cast(void**).malloc(2 * size_t.sizeof);
                     if (ps is null) onOutOfMemoryError();
                     ps[0] = cast(void*)this;
                     ps[1] = cast(void*)libs;
                     if( pthread_create( &m_addr, &attr, &thread_entryPoint, ps ) != 0 )
                     {
-                        unpinLoadedLibraries(libs);
+                        externDFunc!("rt.sections_elf_shared.unpinLoadedLibraries",
+                                     void function(void*) @nogc nothrow)(libs);
                         .free(ps);
                         onThreadError( "Error creating thread" );
                     }
@@ -815,7 +828,7 @@ class Thread
      *
      *  The value is unique for the current process.
      */
-    final @property ThreadID id()
+    final @property ThreadID id() @safe @nogc
     {
         synchronized( this )
         {
@@ -830,7 +843,7 @@ class Thread
      * Returns:
      *  The name of this thread.
      */
-    final @property string name()
+    final @property string name() @safe @nogc
     {
         synchronized( this )
         {
@@ -845,7 +858,7 @@ class Thread
      * Params:
      *  val = The new name of this thread.
      */
-    final @property void name( string val )
+    final @property void name( string val ) @safe @nogc
     {
         synchronized( this )
         {
@@ -897,7 +910,7 @@ class Thread
      * Returns:
      *  true if this is a daemon thread.
      */
-    final @property bool isDaemon()
+    final @property bool isDaemon() @safe @nogc
     {
         synchronized( this )
         {
@@ -916,7 +929,7 @@ class Thread
      * Params:
      *  val = The new daemon status for this thread.
      */
-    final @property void isDaemon( bool val )
+    final @property void isDaemon( bool val ) @safe @nogc
     {
         synchronized( this )
         {
@@ -931,7 +944,7 @@ class Thread
      * Returns:
      *  true if the thread is running, false if not.
      */
-    final @property bool isRunning() nothrow
+    final @property bool isRunning() nothrow @nogc
     {
         if( m_addr == m_addr.init )
         {
@@ -955,33 +968,172 @@ class Thread
     // Thread Priority Actions
     ///////////////////////////////////////////////////////////////////////////
 
+    version( Windows )
+    {
+        @property static int PRIORITY_MIN() @nogc nothrow pure @safe
+        {
+            return THREAD_PRIORITY_IDLE;
+        }
 
-    /**
-     * The minimum scheduling priority that may be set for a thread.  On
-     * systems where multiple scheduling policies are defined, this value
-     * represents the minimum valid priority for the scheduling policy of
-     * the process.
-     */
-    __gshared const int PRIORITY_MIN;
+        @property static const(int) PRIORITY_MAX() @nogc nothrow pure @safe
+        {
+            return THREAD_PRIORITY_TIME_CRITICAL;
+        }
 
+        @property static int PRIORITY_DEFAULT() @nogc nothrow pure @safe
+        {
+            return THREAD_PRIORITY_NORMAL;
+        }
+    }
+    else
+    {
+        private struct Priority
+        {
+            int PRIORITY_MIN = int.min;
+            int PRIORITY_DEFAULT = int.min;
+            int PRIORITY_MAX = int.min;
+        }
 
-    /**
-     * The maximum scheduling priority that may be set for a thread.  On
-     * systems where multiple scheduling policies are defined, this value
-     * represents the maximum valid priority for the scheduling policy of
-     * the process.
-     */
-    __gshared const int PRIORITY_MAX;
+        /*
+        Lazily loads one of the members stored in a hidden global variable of
+        type `Priority`. Upon the first access of either member, the entire
+        `Priority` structure is initialized. Multiple initializations from
+        different threads calling this function are tolerated.
 
+        `which` must be one of `PRIORITY_MIN`, `PRIORITY_DEFAULT`,
+        `PRIORITY_MAX`.
+        */
+        private static int loadGlobal(string which)()
+        {
+            static shared Priority cache;
+            auto local = atomicLoad(mixin("cache." ~ which));
+            if (local != local.min) return local;
+            // There will be benign races
+            cache = loadPriorities;
+            return atomicLoad(mixin("cache." ~ which));
+        }
 
-    /**
-     * The default scheduling priority that is set for a thread.  On
-     * systems where multiple scheduling policies are defined, this value
-     * represents the default priority for the scheduling policy of
-     * the process.
-     */
-    __gshared const int PRIORITY_DEFAULT;
+        /*
+        Loads all priorities and returns them as a `Priority` structure. This
+        function is thread-neutral.
+        */
+        private static Priority loadPriorities() @nogc nothrow @trusted
+        {
+            Priority result;
+            version( Solaris )
+            {
+                pcparms_t pcParms;
+                pcinfo_t pcInfo;
 
+                pcParms.pc_cid = PC_CLNULL;
+                if (priocntl(idtype_t.P_PID, P_MYID, PC_GETPARMS, &pcParms) == -1)
+                    assert( 0, "Unable to get scheduling class" );
+
+                pcInfo.pc_cid = pcParms.pc_cid;
+                // PC_GETCLINFO ignores the first two args, use dummy values
+                if (priocntl(idtype_t.P_PID, 0, PC_GETCLINFO, &pcInfo) == -1)
+                    assert( 0, "Unable to get scheduling class info" );
+
+                pri_t* clparms = cast(pri_t*)&pcParms.pc_clparms;
+                pri_t* clinfo = cast(pri_t*)&pcInfo.pc_clinfo;
+
+                result.PRIORITY_MAX = clparms[0];
+
+                if (pcInfo.pc_clname == "RT")
+                {
+                    m_isRTClass = true;
+
+                    // For RT class, just assume it can't be changed
+                    result.PRIORITY_MIN = clparms[0];
+                    result.PRIORITY_DEFAULT = clparms[0];
+                }
+                else
+                {
+                    m_isRTClass = false;
+
+                    // For all other scheduling classes, there are
+                    // two key values -- uprilim and maxupri.
+                    // maxupri is the maximum possible priority defined
+                    // for the scheduling class, and valid priorities
+                    // range are in [-maxupri, maxupri].
+                    //
+                    // However, uprilim is an upper limit that the
+                    // current thread can set for the current scheduling
+                    // class, which can be less than maxupri.  As such,
+                    // use this value for priorityMax since this is
+                    // the effective maximum.
+
+                    // maxupri
+                    result.PRIORITY_MIN = -clinfo[0];
+                    // by definition
+                    result.PRIORITY_DEFAULT = 0;
+                }
+            }
+            else version( Posix )
+            {
+                int         policy;
+                sched_param param;
+                pthread_getschedparam( pthread_self(), &policy, &param ) == 0
+                    || assert(0, "Internal error in pthread_getschedparam");
+
+                result.PRIORITY_MIN = sched_get_priority_min( policy );
+                result.PRIORITY_MIN != -1
+                    || assert(0, "Internal error in sched_get_priority_min");
+                result.PRIORITY_DEFAULT = param.sched_priority;
+                result.PRIORITY_MAX = sched_get_priority_max( policy );
+                result.PRIORITY_MAX != -1 ||
+                    assert(0, "Internal error in sched_get_priority_max");
+            }
+            else
+            {
+                static assert(0, "Your code here.");
+            }
+            return result;
+        }
+
+        /**
+         * The minimum scheduling priority that may be set for a thread.  On
+         * systems where multiple scheduling policies are defined, this value
+         * represents the minimum valid priority for the scheduling policy of
+         * the process.
+         */
+        @property static int PRIORITY_MIN() @nogc nothrow pure @trusted
+        {
+            return (cast(int function() @nogc nothrow pure @safe)
+                &loadGlobal!"PRIORITY_MIN")();
+        }
+
+        /**
+         * The maximum scheduling priority that may be set for a thread.  On
+         * systems where multiple scheduling policies are defined, this value
+         * represents the maximum valid priority for the scheduling policy of
+         * the process.
+         */
+        @property static const(int) PRIORITY_MAX() @nogc nothrow pure @trusted
+        {
+            return (cast(int function() @nogc nothrow pure @safe)
+                &loadGlobal!"PRIORITY_MAX")();
+        }
+
+        /**
+         * The default scheduling priority that is set for a thread.  On
+         * systems where multiple scheduling policies are defined, this value
+         * represents the default priority for the scheduling policy of
+         * the process.
+         */
+        @property static int PRIORITY_DEFAULT() @nogc nothrow pure @trusted
+        {
+            return (cast(int function() @nogc nothrow pure @safe)
+                &loadGlobal!"PRIORITY_DEFAULT")();
+        }
+    }
+
+    version(NetBSD)
+    {
+        //NetBSD does not support priority for default policy
+        // and it is not possible change policy without root access
+        int fakePriority = int.max;
+    }
 
     /**
      * Gets the scheduling priority for the associated thread.
@@ -997,6 +1149,10 @@ class Thread
         version( Windows )
         {
             return GetThreadPriority( m_hndl );
+        }
+        else version(NetBSD)
+        {
+           return fakePriority==int.max? PRIORITY_DEFAULT : fakePriority;
         }
         else version( Posix )
         {
@@ -1029,7 +1185,7 @@ class Thread
         assert(val >= PRIORITY_MIN);
         assert(val <= PRIORITY_MAX);
     }
-    body
+    do
     {
         version( Windows )
         {
@@ -1061,6 +1217,10 @@ class Thread
 
             if (priocntl(idtype_t.P_LWPID, P_MYID, PC_SETPARMS, &pcparm) == -1)
                 throw new ThreadException( "Unable to set scheduling class" );
+        }
+        else version(NetBSD)
+        {
+           fakePriority = val;
         }
         else version( Posix )
         {
@@ -1153,7 +1313,7 @@ class Thread
     {
         assert( !val.isNegative );
     }
-    body
+    do
     {
         version( Windows )
         {
@@ -1222,7 +1382,7 @@ class Thread
      *  deleting this object is undefined.  If the current thread is not
      *  attached to the runtime, a null reference is returned.
      */
-    static Thread getThis() nothrow
+    static Thread getThis() @safe nothrow @nogc
     {
         // NOTE: This function may not be called until thread_init has
         //       completed.  See thread_suspendAll for more information
@@ -1320,95 +1480,6 @@ class Thread
     }
 
     ///////////////////////////////////////////////////////////////////////////
-    // Static Initalizer
-    ///////////////////////////////////////////////////////////////////////////
-
-
-    /**
-     * This initializer is used to set thread constants.  All functional
-     * initialization occurs within thread_init().
-     */
-    shared static this()
-    {
-        version( Windows )
-        {
-            PRIORITY_MIN = THREAD_PRIORITY_IDLE;
-            PRIORITY_DEFAULT = THREAD_PRIORITY_NORMAL;
-            PRIORITY_MAX = THREAD_PRIORITY_TIME_CRITICAL;
-        }
-        else version( Solaris )
-        {
-            pcparms_t pcParms;
-            pcinfo_t pcInfo;
-
-            pcParms.pc_cid = PC_CLNULL;
-            if (priocntl(idtype_t.P_PID, P_MYID, PC_GETPARMS, &pcParms) == -1)
-                throw new ThreadException( "Unable to get scheduling class" );
-
-            pcInfo.pc_cid = pcParms.pc_cid;
-            // PC_GETCLINFO ignores the first two args, use dummy values
-            if (priocntl(idtype_t.P_PID, 0, PC_GETCLINFO, &pcInfo) == -1)
-                throw new ThreadException( "Unable to get scheduling class info" );
-
-            pri_t* clparms = cast(pri_t*)&pcParms.pc_clparms;
-            pri_t* clinfo = cast(pri_t*)&pcInfo.pc_clinfo;
-
-            if (pcInfo.pc_clname == "RT")
-            {
-                m_isRTClass = true;
-
-                // For RT class, just assume it can't be changed
-                PRIORITY_MAX = clparms[0];
-                PRIORITY_MIN = clparms[0];
-                PRIORITY_DEFAULT = clparms[0];
-            }
-            else
-            {
-                m_isRTClass = false;
-
-                // For all other scheduling classes, there are
-                // two key values -- uprilim and maxupri.
-                // maxupri is the maximum possible priority defined
-                // for the scheduling class, and valid priorities
-                // range are in [-maxupri, maxupri].
-                //
-                // However, uprilim is an upper limit that the
-                // current thread can set for the current scheduling
-                // class, which can be less than maxupri.  As such,
-                // use this value for PRIORITY_MAX since this is
-                // the effective maximum.
-
-                // uprilim
-                PRIORITY_MAX = clparms[0];
-
-                // maxupri
-                PRIORITY_MIN = -clinfo[0];
-
-                // by definition
-                PRIORITY_DEFAULT = 0;
-            }
-        }
-        else version( Posix )
-        {
-            int         policy;
-            sched_param param;
-            pthread_t   self = pthread_self();
-
-            int status = pthread_getschedparam( self, &policy, &param );
-            assert( status == 0 );
-
-            PRIORITY_MIN = sched_get_priority_min( policy );
-            assert( PRIORITY_MIN != -1 );
-
-            PRIORITY_DEFAULT = param.sched_priority;
-
-            PRIORITY_MAX = sched_get_priority_max( policy );
-            assert( PRIORITY_MAX != -1 );
-        }
-    }
-
-
-    ///////////////////////////////////////////////////////////////////////////
     // Stuff That Should Go Away
     ///////////////////////////////////////////////////////////////////////////
 
@@ -1418,7 +1489,7 @@ private:
     // Initializes a thread object which has no associated executable function.
     // This is used for the main thread initialized in thread_init().
     //
-    this(size_t sz = 0)
+    this(size_t sz = 0) @safe pure nothrow @nogc
     {
         if (sz)
         {
@@ -1475,11 +1546,11 @@ private:
     //
     version( Windows )
     {
-        alias uint TLSKey;
+        alias TLSKey = uint;
     }
     else version( Posix )
     {
-        alias pthread_key_t TLSKey;
+        alias TLSKey = pthread_key_t;
     }
 
 
@@ -1543,7 +1614,7 @@ private:
     //
     // Sets a thread-local reference to the current thread object.
     //
-    static void setThis( Thread t )
+    static void setThis( Thread t ) nothrow @nogc
     {
         sm_this = t;
     }
@@ -1555,12 +1626,12 @@ private:
     ///////////////////////////////////////////////////////////////////////////
 
 
-    final void pushContext( Context* c ) nothrow
+    final void pushContext( Context* c ) nothrow @nogc
     in
     {
         assert( !c.within );
     }
-    body
+    do
     {
         m_curr.ehContext = swapContext(c.ehContext);
         c.within = m_curr;
@@ -1568,12 +1639,12 @@ private:
     }
 
 
-    final void popContext() nothrow
+    final void popContext() nothrow @nogc
     in
     {
         assert( m_curr && m_curr.within );
     }
-    body
+    do
     {
         Context* c = m_curr;
         m_curr = c.within;
@@ -1582,12 +1653,12 @@ private:
     }
 
 
-    final Context* topContext() nothrow
+    final Context* topContext() nothrow @nogc
     in
     {
         assert( m_curr );
     }
-    body
+    do
     {
         return m_curr;
     }
@@ -1690,17 +1761,17 @@ private:
     // Careful as the GC acquires this lock after the GC lock to suspend all
     // threads any GC usage with slock held can result in a deadlock through
     // lock order inversion.
-    @property static Mutex slock() nothrow
+    @property static Mutex slock() nothrow @nogc
     {
         return cast(Mutex)_locks[0].ptr;
     }
 
-    @property static Mutex criticalRegionLock() nothrow
+    @property static Mutex criticalRegionLock() nothrow @nogc
     {
         return cast(Mutex)_locks[1].ptr;
     }
 
-    __gshared void[__traits(classInstanceSize, Mutex)][2] _locks;
+    __gshared align(Mutex.alignof) void[__traits(classInstanceSize, Mutex)][2] _locks;
 
     static void initLocks()
     {
@@ -1741,13 +1812,13 @@ private:
     //
     // Add a context to the global context list.
     //
-    static void add( Context* c ) nothrow
+    static void add( Context* c ) nothrow @nogc
     in
     {
         assert( c );
         assert( !c.next && !c.prev );
     }
-    body
+    do
     {
         slock.lock_nothrow();
         scope(exit) slock.unlock_nothrow();
@@ -1767,13 +1838,13 @@ private:
     //
     // This assumes slock being acquired. This isn't done here to
     // avoid double locking when called from remove(Thread)
-    static void remove( Context* c ) nothrow
+    static void remove( Context* c ) nothrow @nogc
     in
     {
         assert( c );
         assert( c.next || c.prev );
     }
-    body
+    do
     {
         if( c.prev )
             c.prev.next = c.next;
@@ -1798,13 +1869,13 @@ private:
     //
     // Add a thread to the global thread list.
     //
-    static void add( Thread t, bool rmAboutToStart = true ) nothrow
+    static void add( Thread t, bool rmAboutToStart = true ) nothrow @nogc
     in
     {
         assert( t );
         assert( !t.next && !t.prev );
     }
-    body
+    do
     {
         slock.lock_nothrow();
         scope(exit) slock.unlock_nothrow();
@@ -1842,12 +1913,12 @@ private:
     //
     // Remove a thread from the global thread list.
     //
-    static void remove( Thread t ) nothrow
+    static void remove( Thread t ) nothrow @nogc
     in
     {
         assert( t );
     }
-    body
+    do
     {
         // Thread was already removed earlier, might happen b/c of thread_detachInstance
         if (!t.next && !t.prev)
@@ -1958,13 +2029,13 @@ version( CoreDdoc )
      * This function should be called at most once, prior to thread_init().
      * This function is Posix-only.
      */
-    extern (C) void thread_setGCSignals(int suspendSignalNo, int resumeSignalNo)
+    extern (C) void thread_setGCSignals(int suspendSignalNo, int resumeSignalNo) nothrow @nogc
     {
     }
 }
 else version( Posix )
 {
-    extern (C) void thread_setGCSignals(int suspendSignalNo, int resumeSignalNo)
+    extern (C) void thread_setGCSignals(int suspendSignalNo, int resumeSignalNo) nothrow @nogc
     in
     {
         assert(suspendSignalNumber == 0);
@@ -1977,7 +2048,7 @@ else version( Posix )
         assert(suspendSignalNumber != 0);
         assert(resumeSignalNumber  != 0);
     }
-    body
+    do
     {
         suspendSignalNumber = suspendSignalNo;
         resumeSignalNumber  = resumeSignalNo;
@@ -2004,6 +2075,10 @@ extern (C) void thread_init()
     //       functions to detect the condition and return immediately.
 
     Thread.initLocks();
+    // The Android VM runtime intercepts SIGUSR1 and apparently doesn't allow
+    // its signal handler to run, so swap the two signals on Android, since
+    // thread_resumeHandler does nothing.
+    version( Android ) thread_setGCSignals(SIGUSR2, SIGUSR1);
 
     version( Darwin )
     {
@@ -2071,6 +2146,9 @@ extern (C) void thread_init()
  */
 extern (C) void thread_term()
 {
+    destroy(Thread.sm_main);
+    Thread.sm_main = null;
+
     assert(Thread.sm_tbeg && Thread.sm_tlen == 1);
     assert(!Thread.nAboutToStart);
     if (Thread.pAboutToStart) // in case realloc(p, 0) doesn't return null
@@ -2085,7 +2163,7 @@ extern (C) void thread_term()
 /**
  *
  */
-extern (C) bool thread_isMainThread()
+extern (C) bool thread_isMainThread() nothrow @nogc
 {
     return Thread.getThis() is Thread.sm_main;
 }
@@ -2218,7 +2296,7 @@ version( Windows )
  *
  *       $(D extern(C) void rt_moduleTlsDtor();)
  */
-extern (C) void thread_detachThis() nothrow
+extern (C) void thread_detachThis() nothrow @nogc
 {
     if (auto t = Thread.getThis())
         Thread.remove(t);
@@ -2244,7 +2322,7 @@ extern (C) void thread_detachByAddr( ThreadID addr )
 
 
 /// ditto
-extern (C) void thread_detachInstance( Thread t )
+extern (C) void thread_detachInstance( Thread t ) nothrow @nogc
 {
     Thread.remove( t );
 }
@@ -2306,7 +2384,7 @@ static Thread thread_findByAddr( ThreadID addr )
  * Params:
  *  t = A reference to the current thread. May be null.
  */
-extern (C) void thread_setThis(Thread t)
+extern (C) void thread_setThis(Thread t) nothrow @nogc
 {
     Thread.setThis(t);
 }
@@ -2390,7 +2468,7 @@ else
     {
         assert(fn);
     }
-    body
+    do
     {
         // The purpose of the 'shell' is to ensure all the registers get
         // put on the stack so they'll be scanned. We only need to push
@@ -2817,7 +2895,7 @@ in
 {
     assert( suspendDepth > 0 );
 }
-body
+do
 {
     // NOTE: See thread_suspendAll for the logic behind this.
     if( !multiThreadedFlag && Thread.sm_tbeg )
@@ -2850,8 +2928,8 @@ enum ScanType
     tls, /// TLS data is being scanned.
 }
 
-alias void delegate(void*, void*) nothrow ScanAllThreadsFn; /// The scanning function.
-alias void delegate(ScanType, void*, void*) nothrow ScanAllThreadsTypeFn; /// ditto
+alias ScanAllThreadsFn = void delegate(void*, void*) nothrow; /// The scanning function.
+alias ScanAllThreadsTypeFn = void delegate(ScanType, void*, void*) nothrow; /// ditto
 
 /**
  * The main entry point for garbage collection.  The supplied delegate
@@ -2868,7 +2946,7 @@ in
 {
     assert( suspendDepth > 0 );
 }
-body
+do
 {
     callWithStackShell(sp => scanAllTypeImpl(scan, sp));
 }
@@ -2973,12 +3051,12 @@ extern (C) void thread_scanAll( scope ScanAllThreadsFn scan ) nothrow
  * In:
  *  The calling thread must be attached to the runtime.
  */
-extern (C) void thread_enterCriticalRegion()
+extern (C) void thread_enterCriticalRegion() @nogc
 in
 {
     assert(Thread.getThis());
 }
-body
+do
 {
     synchronized (Thread.criticalRegionLock)
         Thread.getThis().m_isInCriticalRegion = true;
@@ -2992,12 +3070,12 @@ body
  * In:
  *  The calling thread must be attached to the runtime.
  */
-extern (C) void thread_exitCriticalRegion()
+extern (C) void thread_exitCriticalRegion() @nogc
 in
 {
     assert(Thread.getThis());
 }
-body
+do
 {
     synchronized (Thread.criticalRegionLock)
         Thread.getThis().m_isInCriticalRegion = false;
@@ -3010,12 +3088,12 @@ body
  * In:
  *  The calling thread must be attached to the runtime.
  */
-extern (C) bool thread_inCriticalRegion()
+extern (C) bool thread_inCriticalRegion() @nogc
 in
 {
     assert(Thread.getThis());
 }
-body
+do
 {
     synchronized (Thread.criticalRegionLock)
         return Thread.getThis().m_isInCriticalRegion;
@@ -3142,7 +3220,7 @@ enum IsMarked : int
     unknown, /// Address is not managed by the GC.
 }
 
-alias int delegate( void* addr ) nothrow IsMarkedDg; /// The isMarked callback function.
+alias IsMarkedDg = int delegate( void* addr ) nothrow; /// The isMarked callback function.
 
 /**
  * This routine allows the runtime to process any special per-thread handling
@@ -3169,17 +3247,17 @@ extern(C) void thread_processGCMarks( scope IsMarkedDg isMarked ) nothrow
 }
 
 
-extern (C)
+extern (C) @nogc nothrow
 {
-nothrow:
     version (CRuntime_Glibc) int pthread_getattr_np(pthread_t thread, pthread_attr_t* attr);
     version (FreeBSD) int pthread_attr_get_np(pthread_t thread, pthread_attr_t* attr);
+    version (NetBSD) int pthread_attr_get_np(pthread_t thread, pthread_attr_t* attr);
     version (Solaris) int thr_stksegment(stack_t* stk);
     version (CRuntime_Bionic) int pthread_getattr_np(pthread_t thid, pthread_attr_t* attr);
 }
 
 
-private void* getStackTop() nothrow
+private void* getStackTop() nothrow @nogc
 {
     version (D_InlineAsm_X86)
         asm pure nothrow @nogc { naked; mov EAX, ESP; ret; }
@@ -3192,7 +3270,7 @@ private void* getStackTop() nothrow
 }
 
 
-private void* getStackBottom() nothrow
+private void* getStackBottom() nothrow @nogc
 {
     version (Windows)
     {
@@ -3224,6 +3302,17 @@ private void* getStackBottom() nothrow
         return addr + size;
     }
     else version (FreeBSD)
+    {
+        pthread_attr_t attr;
+        void* addr; size_t size;
+
+        pthread_attr_init(&attr);
+        pthread_attr_get_np(pthread_self(), &attr);
+        pthread_attr_getstack(&attr, &addr, &size);
+        pthread_attr_destroy(&attr);
+        return addr + size;
+    }
+    else version (NetBSD)
     {
         pthread_attr_t attr;
         void* addr; size_t size;
@@ -3266,13 +3355,13 @@ private void* getStackBottom() nothrow
  * Returns:
  *  The address of the stack top.
  */
-extern (C) void* thread_stackTop() nothrow
+extern (C) void* thread_stackTop() nothrow @nogc
 in
 {
     // Not strictly required, but it gives us more flexibility.
     assert(Thread.getThis());
 }
-body
+do
 {
     return getStackTop();
 }
@@ -3288,12 +3377,12 @@ body
  * Returns:
  *  The address of the stack bottom.
  */
-extern (C) void* thread_stackBottom() nothrow
+extern (C) void* thread_stackBottom() nothrow @nogc
 in
 {
     assert(Thread.getThis());
 }
-body
+do
 {
     return Thread.getThis().topContext().bstack;
 }
@@ -3367,7 +3456,7 @@ class ThreadGroup
     {
         assert( t );
     }
-    body
+    do
     {
         synchronized( this )
         {
@@ -3391,7 +3480,7 @@ class ThreadGroup
     {
         assert( t );
     }
-    body
+    do
     {
         synchronized( this )
         {
@@ -3568,7 +3657,7 @@ shared static this()
 
 private
 {
-    extern (C) void fiber_entryPoint()
+    extern (C) void fiber_entryPoint() nothrow
     {
         Fiber   obj = Fiber.getThis();
         assert( obj );
@@ -3596,9 +3685,9 @@ private
 
   // Look above the definition of 'class Fiber' for some information about the implementation of this routine
   version( AsmExternal )
-    extern (C) void fiber_switchContext( void** oldp, void* newp ) nothrow;
+    extern (C) void fiber_switchContext( void** oldp, void* newp ) nothrow @nogc;
   else
-    extern (C) void fiber_switchContext( void** oldp, void* newp ) nothrow
+    extern (C) void fiber_switchContext( void** oldp, void* newp ) nothrow @nogc
     {
         // NOTE: The data pushed and popped in this routine must match the
         //       default stack created by Fiber.initStack or the initial
@@ -3997,18 +4086,23 @@ class Fiber
      * Params:
      *  fn = The fiber function.
      *  sz = The stack size for this fiber.
+     *  guardPageSize = size of the guard page to trap fiber's stack
+     *                  overflows. Beware that using this will increase
+     *                  the number of mmaped regions on platforms using mmap
+     *                  so an OS-imposed limit may be hit.
      *
      * In:
      *  fn must not be null.
      */
-    this( void function() fn, size_t sz = PAGESIZE*4 ) nothrow
+    this( void function() fn, size_t sz = PAGESIZE*4,
+          size_t guardPageSize = PAGESIZE ) nothrow
     in
     {
         assert( fn );
     }
-    body
+    do
     {
-        allocStack( sz );
+        allocStack( sz, guardPageSize );
         reset( fn );
     }
 
@@ -4020,18 +4114,23 @@ class Fiber
      * Params:
      *  dg = The fiber function.
      *  sz = The stack size for this fiber.
+     *  guardPageSize = size of the guard page to trap fiber's stack
+     *                  overflows. Beware that using this will increase
+     *                  the number of mmaped regions on platforms using mmap
+     *                  so an OS-imposed limit may be hit.
      *
      * In:
      *  dg must not be null.
      */
-    this( void delegate() dg, size_t sz = PAGESIZE*4 ) nothrow
+    this( void delegate() dg, size_t sz = PAGESIZE*4,
+          size_t guardPageSize = PAGESIZE ) nothrow
     in
     {
         assert( dg );
     }
-    body
+    do
     {
-        allocStack( sz );
+        allocStack( sz, guardPageSize);
         reset( dg );
     }
 
@@ -4039,7 +4138,7 @@ class Fiber
     /**
      * Cleans up any remaining resources used by this object.
      */
-    ~this() nothrow
+    ~this() nothrow @nogc
     {
         // NOTE: A live reference to this object will exist on its associated
         //       stack from the first time its call() method has been called
@@ -4081,6 +4180,11 @@ class Fiber
      *  Any exception not handled by this fiber if rethrow = false, null
      *  otherwise.
      */
+    // Not marked with any attributes, even though `nothrow @nogc` works
+    // because it calls arbitrary user code. Most of the implementation
+    // is already `@nogc nothrow`, but in order for `Fiber.call` to
+    // propagate the attributes of the user's function, the Fiber
+    // class needs to be templated.
     final Throwable call( Rethrow rethrow = Rethrow.yes )
     {
         return rethrow ? call!(Rethrow.yes)() : call!(Rethrow.no);
@@ -4109,12 +4213,12 @@ class Fiber
         return rethrow ? call!(Rethrow.yes)() : call!(Rethrow.no);
     }
 
-    private void callImpl() nothrow
+    private void callImpl() nothrow @nogc
     in
     {
         assert( m_state == State.HOLD );
     }
-    body
+    do
     {
         Fiber   cur = getThis();
 
@@ -4155,12 +4259,12 @@ class Fiber
      * In:
      *  This fiber must be in state TERM or HOLD.
      */
-    final void reset() nothrow
+    final void reset() nothrow @nogc
     in
     {
         assert( m_state == State.TERM || m_state == State.HOLD );
     }
-    body
+    do
     {
         m_ctxt.tstack = m_ctxt.bstack;
         m_state = State.HOLD;
@@ -4169,7 +4273,7 @@ class Fiber
     }
 
     /// ditto
-    final void reset( void function() fn ) nothrow
+    final void reset( void function() fn ) nothrow @nogc
     {
         reset();
         m_fn    = fn;
@@ -4177,7 +4281,7 @@ class Fiber
     }
 
     /// ditto
-    final void reset( void delegate() dg ) nothrow
+    final void reset( void delegate() dg ) nothrow @nogc
     {
         reset();
         m_dg    = dg;
@@ -4210,7 +4314,7 @@ class Fiber
      * Returns:
      *  The state of this fiber as an enumerated value.
      */
-    final @property State state() const nothrow
+    final @property State state() const @safe pure nothrow @nogc
     {
         return m_state;
     }
@@ -4224,7 +4328,7 @@ class Fiber
     /**
      * Forces a context switch to occur away from the calling fiber.
      */
-    static void yield() nothrow
+    static void yield() nothrow @nogc
     {
         Fiber   cur = getThis();
         assert( cur, "Fiber.yield() called with no active fiber" );
@@ -4249,12 +4353,12 @@ class Fiber
      * In:
      *  t must not be null.
      */
-    static void yieldAndThrow( Throwable t ) nothrow
+    static void yieldAndThrow( Throwable t ) nothrow @nogc
     in
     {
         assert( t );
     }
-    body
+    do
     {
         Fiber   cur = getThis();
         assert( cur, "Fiber.yield() called with no active fiber" );
@@ -4283,7 +4387,7 @@ class Fiber
      *  The fiber object representing the calling fiber or null if no fiber
      *  is currently active within this thread. The result of deleting this object is undefined.
      */
-    static Fiber getThis() nothrow
+    static Fiber getThis() @safe nothrow @nogc
     {
         return sm_this;
     }
@@ -4310,7 +4414,7 @@ private:
     //
     // Initializes a fiber object which has no associated executable function.
     //
-    this() nothrow
+    this() @safe pure nothrow @nogc
     {
         m_call = Call.NO;
     }
@@ -4371,12 +4475,12 @@ private:
     //
     // Allocate a new stack for this fiber.
     //
-    final void allocStack( size_t sz ) nothrow
+    final void allocStack( size_t sz, size_t guardPageSize ) nothrow
     in
     {
         assert( !m_pmem && !m_ctxt );
     }
-    body
+    do
     {
         // adjust alloc size to a multiple of PAGESIZE
         sz += PAGESIZE - 1;
@@ -4396,7 +4500,7 @@ private:
         {
             // reserve memory for stack
             m_pmem = VirtualAlloc( null,
-                                   sz + PAGESIZE,
+                                   sz + guardPageSize,
                                    MEM_RESERVE,
                                    PAGE_NOACCESS );
             if( !m_pmem )
@@ -4404,7 +4508,7 @@ private:
 
             version( StackGrowsDown )
             {
-                void* stack = m_pmem + PAGESIZE;
+                void* stack = m_pmem + guardPageSize;
                 void* guard = m_pmem;
                 void* pbase = stack + sz;
             }
@@ -4423,13 +4527,16 @@ private:
             if( !stack )
                 onOutOfMemoryError();
 
-            // allocate reserved guard page
-            guard = VirtualAlloc( guard,
-                                  PAGESIZE,
-                                  MEM_COMMIT,
-                                  PAGE_READWRITE | PAGE_GUARD );
-            if( !guard )
-                onOutOfMemoryError();
+            if (guardPageSize)
+            {
+                // allocate reserved guard page
+                guard = VirtualAlloc( guard,
+                                      guardPageSize,
+                                      MEM_COMMIT,
+                                      PAGE_READWRITE | PAGE_GUARD );
+                if( !guard )
+                    onOutOfMemoryError();
+            }
 
             m_ctxt.bstack = pbase;
             m_ctxt.tstack = pbase;
@@ -4439,11 +4546,15 @@ private:
         {
             version (Posix) import core.sys.posix.sys.mman; // mmap
             version (FreeBSD) import core.sys.freebsd.sys.mman : MAP_ANON;
+            version (NetBSD) import core.sys.netbsd.sys.mman : MAP_ANON;
             version (CRuntime_Glibc) import core.sys.linux.sys.mman : MAP_ANON;
             version (Darwin) import core.sys.darwin.sys.mman : MAP_ANON;
 
             static if( __traits( compiles, mmap ) )
             {
+                // Allocate more for the memory guard
+                sz += guardPageSize;
+
                 m_pmem = mmap( null,
                                sz,
                                PROT_READ | PROT_WRITE,
@@ -4473,13 +4584,30 @@ private:
             {
                 m_ctxt.bstack = m_pmem + sz;
                 m_ctxt.tstack = m_pmem + sz;
+                void* guard = m_pmem;
             }
             else
             {
                 m_ctxt.bstack = m_pmem;
                 m_ctxt.tstack = m_pmem;
+                void* guard = m_pmem + sz - guardPageSize;
             }
             m_size = sz;
+
+            static if( __traits( compiles, mmap ) )
+            {
+                if (guardPageSize)
+                {
+                    // protect end of stack
+                    if ( mprotect(guard, guardPageSize, PROT_NONE) == -1 )
+                        abort();
+                }
+            }
+            else
+            {
+                // Supported only for mmap allocated memory - results are
+                // undefined if applied to memory not obtained by mmap
+            }
         }
 
         Thread.add( m_ctxt );
@@ -4489,12 +4617,12 @@ private:
     //
     // Free this fiber's stack.
     //
-    final void freeStack() nothrow
+    final void freeStack() nothrow @nogc
     in
     {
         assert( m_pmem && m_ctxt );
     }
-    body
+    do
     {
         // NOTE: m_ctxt is guaranteed to be alive because it is held in the
         //       global context list.
@@ -4532,13 +4660,13 @@ private:
     // Initialize the allocated stack.
     // Look above the definition of 'class Fiber' for some information about the implementation of this routine
     //
-    final void initStack() nothrow
+    final void initStack() nothrow @nogc
     in
     {
         assert( m_ctxt.tstack && m_ctxt.tstack == m_ctxt.bstack );
         assert( cast(size_t) m_ctxt.bstack % (void*).sizeof == 0 );
     }
-    body
+    do
     {
         void* pstack = m_ctxt.tstack;
         scope( exit )  m_ctxt.tstack = pstack;
@@ -4599,7 +4727,7 @@ private:
             // Thus, it should not have any effects on OSes not implementing
             // exception chain verification.
 
-            alias void function() fp_t; // Actual signature not relevant.
+            alias fp_t = void function(); // Actual signature not relevant.
             static struct EXCEPTION_REGISTRATION
             {
                 EXCEPTION_REGISTRATION* next; // sehChainEnd if last one.
@@ -4867,7 +4995,7 @@ private:
     //
     // Sets a thread-local reference to the current fiber object.
     //
-    static void setThis( Fiber f ) nothrow
+    static void setThis( Fiber f ) nothrow @nogc
     {
         sm_this = f;
     }
@@ -4884,7 +5012,7 @@ private:
     //
     // Switches into the stack held by this fiber.
     //
-    final void switchIn() nothrow
+    final void switchIn() nothrow @nogc
     {
         Thread  tobj = Thread.getThis();
         void**  oldp = &tobj.m_curr.tstack;
@@ -4918,7 +5046,7 @@ private:
     //
     // Switches out of the current stack and into the enclosing stack.
     //
-    final void switchOut() nothrow
+    final void switchOut() nothrow @nogc
     {
         Thread  tobj = Thread.getThis();
         void**  oldp = &m_ctxt.tstack;
