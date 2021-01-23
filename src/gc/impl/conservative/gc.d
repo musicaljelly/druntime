@@ -62,25 +62,30 @@ alias currTime = MonoTime.currTime;
 // !!!
 debug (GameDebug)
 {
-    alias GCLoggingFunc = void function(bool isCollection, string file, uint line, string funcname,
-        string type = null, size_t size = -1, Duration time = Duration.zero) nothrow;
+    alias GCLoggingFunc = void function(bool isCollection, size_t size = -1, Duration time = Duration.zero) nothrow;
     GCLoggingFunc g_loggingFunc = null;
     extern (C) void SetGCLoggingFunction(GCLoggingFunc loggingFunc)
     {
         g_loggingFunc = loggingFunc;
     }
 
-    void GCLoggingHelper(bool isCollection, char* fileCString, uint line, string funcname,
-        string type = null, size_t size = -1, Duration time = Duration.zero) nothrow
+    void GCLoggingHelper(bool isCollection, size_t size = -1, Duration time = Duration.zero) nothrow
     {
         import core.stdc.string : strlen;
         __gshared static disableLogging = 0;
-        string file = cast(string)(fileCString ? fileCString[0 .. strlen(fileCString)] : null);
         if (g_loggingFunc !is null && disableLogging == 0)
         {
-            disableLogging++;
-            g_loggingFunc(isCollection, file, line, funcname, type, size, time);
-            disableLogging--;
+            // Put this all in a giant try/catch in order to make this function conform to nothrow
+            try
+            {
+                disableLogging++;
+                g_loggingFunc(isCollection, size, time);
+                disableLogging--;
+            }
+            catch (Throwable)
+            {
+                assert(false);
+            }
         }
     }
 }
@@ -553,8 +558,7 @@ class ConservativeGC : GC
         }
         // !!!
         //gcx.log_malloc(p, size);
-        debug (GameDebug) GCLoggingHelper(false, ConservativeGC.file, ConservativeGC.line,
-            "bla", "bla", size);
+        debug (GameDebug) GCLoggingHelper(false, size);
         // !!!
 
         return p;
@@ -1267,6 +1271,8 @@ class ConservativeGC : GC
     void initializeScrapheapOnThisThread(size_t initScrapheapSize) nothrow {}
     void reset() nothrow {}
     size_t getHighWatermark() nothrow {return 0;}
+    void startTempRegion() nothrow {}
+    void endTempRegion() nothrow {}
     // !!!
 }
 
@@ -2512,7 +2518,7 @@ struct Gcx
             // Do this here in the more internal fullcollect() because when allocating, we don't call the slighly more external
             // fullCollect(), we instead call the more internal fullcollect(). So, to capture all collections, we need to be
             // logging in fullcollect().
-            GCLoggingHelper(true, ConservativeGC.file, ConservativeGC.line, "bla", "bla", 0, totalTime);
+            GCLoggingHelper(true, 0, totalTime);
         }
         // !!!
 

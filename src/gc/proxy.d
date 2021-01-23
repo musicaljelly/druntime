@@ -214,22 +214,25 @@ extern (C)
 
     void gc_addRoot( void* p ) nothrow
     {
-        return instance.addRoot( p );
+        // Always use GC instance for addRoot, addRange etc.
+        // druntime/phobos code sometimes adds roots and ranges at unexpected times, for example, in the phobos Array implementation.
+        // We want this to work even if we're inside a scrapheap section.
+        return gcInstance.addRoot( p );
     }
 
     void gc_addRange( void* p, size_t sz, const TypeInfo ti = null ) nothrow
     {
-        return instance.addRange( p, sz, ti );
+        return gcInstance.addRange( p, sz, ti );
     }
 
     void gc_removeRoot( void* p ) nothrow
     {
-        return instance.removeRoot( p );
+        return gcInstance.removeRoot( p );
     }
 
     void gc_removeRange( void* p ) nothrow
     {
-        return instance.removeRange( p );
+        return gcInstance.removeRange( p );
     }
 
     void gc_runFinalizers( in void[] segment ) nothrow
@@ -360,6 +363,16 @@ extern (C)
             asm {int 3;}
         }
         instance = allocatorStack[allocatorStackTop];
+    }
+
+    void StartScrapheapTempRegion()
+    {
+        (cast(GC)scrapheapInstance).startTempRegion();
+    }
+
+    void EndScrapheapTempRegion()
+    {
+        (cast(GC)scrapheapInstance).endTempRegion();
     }
 
     private

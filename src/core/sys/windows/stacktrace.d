@@ -31,6 +31,21 @@ extern(Windows) alias USHORT function(ULONG FramesToSkip, ULONG FramesToCapture,
 private __gshared RtlCaptureStackBackTraceFunc RtlCaptureStackBackTrace;
 private __gshared immutable bool initialized;
 
+// !!!
+struct StackFrameInfo
+{
+    void* address = null;
+    char[] symbolName = null; // left as null if we have no symbol info
+    char[] filename = null; // left as null if we have no filename and line number
+    uint lineNumber = 0;
+}
+
+// We don't have access to phobos from here, so just copy the implementation of fromStringz().
+inout(char)[] fromStringz(inout(char)* cString) @nogc @system pure nothrow {
+    import core.stdc.string : strlen;
+    return cString ? cString[0 .. strlen(cString)] : null;
+}
+// !!!
 
 class StackTrace : Throwable.TraceInfo
 {
@@ -121,13 +136,46 @@ public:
      * Returns:
      *  An array of strings with the results.
      */
+    // !!!
     @trusted static char[][] resolve(const(ulong)[] addresses)
     {
         synchronized( typeid(StackTrace) )
         {
+            StackFrameInfo[] frames = resolveNoSync(addresses);
+            char[][] formattedInfo;
+
+            foreach (frame; frames)
+            {
+                if (frame.symbolName !is null)
+                {
+                    if (frame.filename !is null)
+                    {
+                        formattedInfo ~= formatStackFrame(frame.address, frame.symbolName,
+                            frame.filename, frame.lineNumber);
+                    }
+                    else
+                    {
+                        formattedInfo ~= formatStackFrame(frame.address, frame.symbolName);
+                    }
+                }
+                else
+                {
+                    formattedInfo ~= formatStackFrame(frame.address);
+                }
+            }
+
+            return formattedInfo;
+        }
+    }
+
+    @trusted static StackFrameInfo[] resolveToInfo(const(ulong)[] addresses)
+    {
+        synchronized(typeid(StackTrace))
+        {
             return resolveNoSync(addresses);
         }
     }
+    // !!!
 
 private:
     ulong[] m_trace;
@@ -230,8 +278,9 @@ private:
                                    &ctxt, null, null, null, null));
         return result;
     }
-
-    static char[][] resolveNoSync(const(ulong)[] addresses)
+    
+    // !!!
+    static StackFrameInfo[] resolveNoSync(const(ulong)[] addresses)
     {
         auto dbghelp  = DbgHelp.get();
         if(dbghelp is null)
@@ -250,32 +299,48 @@ private:
         symbol.SizeOfStruct = IMAGEHLP_SYMBOLA64.sizeof;
         symbol.MaxNameLength = bufSymbol._buf.length;
 
-        char[][] trace;
+        StackFrameInfo[] trace;
         foreach(pc; addresses)
         {
             if( pc != 0 )
             {
-                char[] res;
+                StackFrameInfo frameInfo;
+                frameInfo.address = cast(void*)pc;
+
                 if (dbghelp.SymGetSymFromAddr64(hProcess, pc, null, symbol) &&
                     *symbol.Name.ptr)
                 {
+                    // Demangle the symbol name
+                    char[2048] demangleBuf = void;
+                    const(char)[] tempSymName = symbol.Name.ptr[0 .. strlen(symbol.Name.ptr)];
+                    //Deal with dmd mangling of long names
+                    version(DigitalMars) version(Win32)
+                    {
+                        size_t decodeIndex = 0;
+                        tempSymName = decodeDmdString(tempSymName, decodeIndex);
+                    }
+                    char[] demangledName = demangle(tempSymName, demangleBuf);
+
+                    // Store it in the frameinfo struct
+                    frameInfo.symbolName = demangledName.dup;
+
                     DWORD disp;
                     IMAGEHLP_LINEA64 line=void;
                     line.SizeOfStruct = IMAGEHLP_LINEA64.sizeof;
 
                     if (dbghelp.SymGetLineFromAddr64(hProcess, pc, &disp, &line))
-                        res = formatStackFrame(cast(void*)pc, symbol.Name.ptr,
-                                               line.FileName, line.LineNumber);
-                    else
-                        res = formatStackFrame(cast(void*)pc, symbol.Name.ptr);
+                    {
+                        frameInfo.filename = line.FileName.fromStringz().dup;
+                        frameInfo.lineNumber = line.LineNumber;
+                    }
                 }
-                else
-                    res = formatStackFrame(cast(void*)pc);
-                trace ~= res;
+
+                trace ~= frameInfo;
             }
         }
         return trace;
     }
+    // !!!
 
     static char[] formatStackFrame(void* pc)
     {
@@ -286,33 +351,25 @@ private:
         cast(uint)len < buf.length || assert(0);
         return buf[0 .. len].dup;
     }
-
-    static char[] formatStackFrame(void* pc, char* symName)
+    
+    // !!!
+    static char[] formatStackFrame(void* pc, char[] symName)
     {
-        char[2048] demangleBuf=void;
-
         auto res = formatStackFrame(pc);
         res ~= " in ";
-const(char)[] tempSymName = symName[0 .. strlen(symName)];
-        //Deal with dmd mangling of long names
-        version(DigitalMars) version(Win32)
-        {
-            size_t decodeIndex = 0;
-            tempSymName = decodeDmdString(tempSymName, decodeIndex);
-        }
-        res ~= demangle(tempSymName, demangleBuf);
+        res ~= symName;
         return res;
     }
 
-    static char[] formatStackFrame(void* pc, char* symName,
-                                   in char* fileName, uint lineNum)
+    static char[] formatStackFrame(void* pc, char[] symName,
+                                   in char[] fileName, uint lineNum)
     {
         import core.stdc.stdio : snprintf;
         char[11] buf=void;
 
         auto res = formatStackFrame(pc, symName);
         res ~= " at ";
-        res ~= fileName[0 .. strlen(fileName)];
+        res ~= fileName;
         res ~= "(";
         immutable len = snprintf(buf.ptr, buf.length, "%u", lineNum);
         cast(uint)len < buf.length || assert(0);
@@ -320,6 +377,7 @@ const(char)[] tempSymName = symName[0 .. strlen(symName)];
         res ~= ")";
         return res;
     }
+    // !!!
 }
 
 

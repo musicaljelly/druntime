@@ -27,7 +27,7 @@ struct Heap
         top = base;
         size = heapSize;
 
-        debug (GameDebug) memset(base, 0xbaadf00d, heapSize);
+        debug (GameDebug) memset(base, 0xba, heapSize);
     }
 
     void Destroy() nothrow
@@ -71,6 +71,7 @@ class ScrapheapGC : GC
     // Static so they can be thread-local
     static Heap[NUM_TLS_HEAPS] tls_heaps;
     static int tls_heapIndex = 0;
+    static void* tls_tempRegionBottom = null;
     static size_t tls_highWatermark = 0;
     static size_t tls_highWatermarkThisFrame = 0;
 
@@ -185,6 +186,9 @@ class ScrapheapGC : GC
             tls_heapIndex++;
             tls_heaps[tls_heapIndex].Init(curHeap.size * 2);
             curHeap = &tls_heaps[tls_heapIndex];
+
+            // If we allocated a new heap, the temp region reset point gets bumped up to the start of the new heap
+            tls_tempRegionBottom = tls_heaps[tls_heapIndex].base;
         }
 
         // Each scrapheap is thread-local, so no need for atomic ops or anything, plain old addition is fine.
@@ -248,7 +252,7 @@ class ScrapheapGC : GC
         else
         {
             // All is normal, just do a normal scrapheap reset.
-            debug (GameDebug) memset(tls_heaps[0].base, 0xbaadf00d, tls_heaps[0].top - tls_heaps[0].base);
+            debug (GameDebug) memset(tls_heaps[0].base, 0xba, tls_heaps[0].top - tls_heaps[0].base);
             tls_heaps[0].top = tls_heaps[0].base;
         }
 
@@ -312,70 +316,42 @@ class ScrapheapGC : GC
 
     void addRoot(void* p) nothrow @nogc
     {
-        roots.insertBack(Root(p));
+        assert(false);
     }
 
     void removeRoot(void* p) nothrow @nogc
     {
-        foreach (ref r; roots)
-        {
-            if (r is p)
-            {
-                r = roots.back;
-                roots.popBack();
-                return;
-            }
-        }
         assert(false);
     }
 
     @property RootIterator rootIter() @nogc
     {
-        return &rootsApply;
+        assert(false);
     }
 
     private int rootsApply(scope int delegate(ref Root) nothrow dg)
     {
-        foreach (ref r; roots)
-        {
-            if (auto result = dg(r))
-                return result;
-        }
-        return 0;
+        assert(false);
     }
 
     void addRange(void* p, size_t sz, const TypeInfo ti = null) nothrow @nogc
     {
-        ranges.insertBack(Range(p, p + sz, cast() ti));
+        assert(false);
     }
 
     void removeRange(void* p) nothrow @nogc
     {
-        foreach (ref r; ranges)
-        {
-            if (r.pbot is p)
-            {
-                r = ranges.back;
-                ranges.popBack();
-                return;
-            }
-        }
         assert(false);
     }
 
     @property RangeIterator rangeIter() @nogc
     {
-        return &rangesApply;
+        assert(false);
     }
 
     private int rangesApply(scope int delegate(ref Range) nothrow dg)
     {
-        foreach (ref r; ranges)
-        {
-            if (auto result = dg(r))
-                return result;
-        }
-        return 0;
+        assert(false);
     }
 
     void runFinalizers(in void[] segment) nothrow
@@ -385,6 +361,31 @@ class ScrapheapGC : GC
     bool inFinalizer() nothrow
     {
         return false;
+    }
+
+    void startTempRegion() nothrow
+    {
+        debug (GameDebug) if (tls_tempRegionBottom !is null)
+        {
+            import core.stdc.stdio : printf;
+            printf("Tried to start a scrapheap temp region when one was already in progress");
+            asm nothrow {int 3;}
+        }
+
+        tls_tempRegionBottom = tls_heaps[tls_heapIndex].top;
+    }
+
+    void endTempRegion() nothrow
+    {
+        debug (GameDebug) if (tls_tempRegionBottom is null)
+        {
+            import core.stdc.stdio : printf;
+            printf("Tried to end a scrapheap temp region when one wasn't in progress");
+            asm nothrow {int 3;}
+        }
+
+        tls_heaps[tls_heapIndex].top = tls_tempRegionBottom;
+        tls_tempRegionBottom = null;
     }
 }
 // !!!

@@ -42,6 +42,9 @@ extern(System)
     alias BOOL         function(HANDLE hProcess, ULONG ActionCode, ulong CallbackContext, ulong UserContext) PSYMBOL_REGISTERED_CALLBACK64;
     alias BOOL         function(HANDLE hProcess, PSYMBOL_REGISTERED_CALLBACK64 CallbackFunction, ulong UserContext) SymRegisterCallback64Func;
     alias API_VERSION* function() ImagehlpApiVersionFunc;
+    // !!!
+    alias BOOL         function(HANDLE hProcess) SymRefreshModuleListFunc;
+    // !!!
 }
 
 struct DbgHelp
@@ -62,6 +65,9 @@ struct DbgHelp
     SymUnloadModule64Func    SymUnloadModule64;
     SymRegisterCallback64Func SymRegisterCallback64;
     ImagehlpApiVersionFunc   ImagehlpApiVersion;
+    // !!!
+    SymRefreshModuleListFunc SymRefreshModuleList;
+    // !!!
 
     static DbgHelp* get()
     {
@@ -84,11 +90,14 @@ struct DbgHelp
             sm_inst.SymUnloadModule64        = cast(SymUnloadModule64Func) GetProcAddress(sm_hndl,"SymUnloadModule64");
             sm_inst.SymRegisterCallback64    = cast(SymRegisterCallback64Func) GetProcAddress(sm_hndl, "SymRegisterCallback64");
             sm_inst.ImagehlpApiVersion       = cast(ImagehlpApiVersionFunc) GetProcAddress(sm_hndl, "ImagehlpApiVersion");
+            // !!!
+            sm_inst.SymRefreshModuleList     = cast(SymRefreshModuleListFunc) GetProcAddress(sm_hndl, "SymRefreshModuleList");
             assert( sm_inst.SymInitialize && sm_inst.SymCleanup && sm_inst.StackWalk64 && sm_inst.SymGetOptions &&
                     sm_inst.SymSetOptions && sm_inst.SymFunctionTableAccess64 && sm_inst.SymGetLineFromAddr64 &&
                     sm_inst.SymGetModuleBase64 && sm_inst.SymGetModuleInfo64 && sm_inst.SymGetSymFromAddr64 &&
                     sm_inst.SymLoadModule64 && sm_inst.SymGetSearchPath && sm_inst.SymUnloadModule64 &&
-                    sm_inst.SymRegisterCallback64 && sm_inst.ImagehlpApiVersion);
+                    sm_inst.SymRegisterCallback64 && sm_inst.ImagehlpApiVersion && sm_inst.SymRefreshModuleList);
+            // !!!
 
             return &sm_inst;
         }
