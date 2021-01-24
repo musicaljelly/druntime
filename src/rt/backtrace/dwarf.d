@@ -1,25 +1,40 @@
 /**
- * This code handles backtrace generation using dwarf .debug_line section
- * in ELF files for linux.
+ * This code handles backtrace generation using DWARF debug_line section
+ * in ELF and Mach-O files for Posix.
  *
  * Reference: http://www.dwarfstd.org/
  *
  * Copyright: Copyright Digital Mars 2015 - 2015.
- * License:   $(WEB www.boost.org/LICENSE_1_0.txt, Boost License 1.0).
+ * License:   $(HTTP www.boost.org/LICENSE_1_0.txt, Boost License 1.0).
  * Authors:   Yazan Dabain, Sean Kelly
- * Source: $(DRUNTIMESRC src/rt/backtrace/dwarf.d)
+ * Source: $(DRUNTIMESRC rt/backtrace/dwarf.d)
  */
 
 module rt.backtrace.dwarf;
 
-version(CRuntime_Glibc) version = linux_or_freebsd;
-else version(FreeBSD) version = linux_or_freebsd;
+version (OSX)
+    version = Darwin;
+else version (iOS)
+    version = Darwin;
+else version (TVOS)
+    version = Darwin;
+else version (WatchOS)
+    version = Darwin;
 
-version(linux_or_freebsd):
+version(CRuntime_Glibc) version = has_backtrace;
+else version(FreeBSD) version = has_backtrace;
+else version(DragonFlyBSD) version = has_backtrace;
+else version(CRuntime_UClibc) version = has_backtrace;
+else version(Darwin) version = has_backtrace;
+
+version(has_backtrace):
+
+version (Darwin)
+    import rt.backtrace.macho;
+else
+    import rt.backtrace.elf;
 
 import rt.util.container.array;
-import rt.backtrace.elf;
-
 import core.stdc.string : strlen, memchr;
 
 //debug = DwarfDebugMachine;
@@ -36,33 +51,28 @@ int traceHandlerOpApplyImpl(const void*[] callstack, scope int delegate(ref size
     import core.stdc.stdio : snprintf;
     version(linux) import core.sys.linux.execinfo : backtrace_symbols;
     else version(FreeBSD) import core.sys.freebsd.execinfo : backtrace_symbols;
+    else version(DragonFlyBSD) import core.sys.dragonflybsd.execinfo : backtrace_symbols;
+    else version(Darwin) import core.sys.darwin.execinfo : backtrace_symbols;
     import core.sys.posix.stdlib : free;
 
     const char** frameList = backtrace_symbols(callstack.ptr, cast(int) callstack.length);
     scope(exit) free(cast(void*) frameList);
 
     // find address -> file, line mapping using dwarf debug_line
-    ElfFile file;
-    ElfSection dbgSection;
     Array!Location locations;
-    if (ElfFile.openSelf(&file))
+    auto image = Image.openSelf();
+    if (image.isValid)
     {
-        auto stringSectionHeader = ElfSectionHeader(&file, file.ehdr.e_shstrndx);
-        auto stringSection = ElfSection(&file, &stringSectionHeader);
+        auto debugLineSectionData = image.getDebugLineSectionData();
 
-        auto dbgSectionIndex = findSectionByName(&file, &stringSection, ".debug_line");
-        if (dbgSectionIndex != -1)
+        if (debugLineSectionData)
         {
-            auto dbgSectionHeader = ElfSectionHeader(&file, dbgSectionIndex);
-            dbgSection = ElfSection(&file, &dbgSectionHeader);
-            // debug_line section found and loaded
-
             // resolve addresses
             locations.length = callstack.length;
             foreach(size_t i; 0 .. callstack.length)
                 locations[i].address = cast(size_t) callstack[i];
 
-            resolveAddresses(&dbgSection, locations[]);
+            resolveAddresses(debugLineSectionData, locations[], image.baseAddress);
         }
     }
 
@@ -98,13 +108,13 @@ int traceHandlerOpApplyImpl(const void*[] callstack, scope int delegate(ref size
 private:
 
 // the lifetime of the Location data is the lifetime of the mmapped ElfSection
-void resolveAddresses(ElfSection* debugLineSection, Location[] locations) @nogc nothrow
+void resolveAddresses(const(ubyte)[] debugLineSectionData, Location[] locations, size_t baseAddress) @nogc nothrow
 {
     debug(DwarfDebugMachine) import core.stdc.stdio;
 
     size_t numberOfLocationsFound = 0;
 
-    const(ubyte)[] dbg = debugLineSection.get();
+    const(ubyte)[] dbg = debugLineSectionData;
     while (dbg.length > 0)
     {
         debug(DwarfDebugMachine) printf("new debug program\n");
@@ -192,6 +202,9 @@ void resolveAddresses(ElfSection* debugLineSection, Location[] locations) @nogc 
         runStateMachine(lph, program, standardOpcodeLengths,
             (size_t address, LocationInfo locInfo, bool isEndSequence)
             {
+                // adjust to ASLR offset
+                address += baseAddress;
+                debug(DwarfDebugMachine) printf("-- offsetting 0x%x to 0x%x\n", address - baseAddress, address);
                 // If loc.line != -1, then it has been set previously.
                 // Some implementations (eg. dmd) write an address to
                 // the debug data multiple times, but so far I have found
@@ -377,6 +390,8 @@ bool runStateMachine(const(LPHeader)* lpHeader, const(ubyte)[] program, const(ub
 
 const(char)[] getDemangledSymbol(const(char)[] btSymbol, ref char[1024] buffer)
 {
+    import core.demangle;
+
     version(linux)
     {
         // format is:  module(_D6module4funcAFZv) [0x00000000]
@@ -392,22 +407,81 @@ const(char)[] getDemangledSymbol(const(char)[] btSymbol, ref char[1024] buffer)
         auto eptr = cast(char*) memchr(btSymbol.ptr, '>', btSymbol.length);
         auto pptr = cast(char*) memchr(btSymbol.ptr, '+', btSymbol.length);
     }
-
-    if (pptr && pptr < eptr)
-        eptr = pptr;
-
-    size_t symBeg, symEnd;
-    if (bptr++ && eptr)
+    else version(DragonFlyBSD)
     {
-        symBeg = bptr - btSymbol.ptr;
-        symEnd = eptr - btSymbol.ptr;
+        // format is: 0x00000000 <_D6module4funcAFZv+0x78> at module
+        auto bptr = cast(char*) memchr(btSymbol.ptr, '<', btSymbol.length);
+        auto eptr = cast(char*) memchr(btSymbol.ptr, '>', btSymbol.length);
+        auto pptr = cast(char*) memchr(btSymbol.ptr, '+', btSymbol.length);
+    }
+    else version(Darwin)
+        return demangle(extractSymbol(btSymbol), buffer[]);
+
+    version (Darwin) {}
+    else
+    {
+        if (pptr && pptr < eptr)
+            eptr = pptr;
+
+        size_t symBeg, symEnd;
+        if (bptr++ && eptr)
+        {
+            symBeg = bptr - btSymbol.ptr;
+            symEnd = eptr - btSymbol.ptr;
+        }
+
+        assert(symBeg <= symEnd);
+        assert(symEnd < btSymbol.length);
+
+        return demangle(btSymbol[symBeg .. symEnd], buffer[]);
+    }
+}
+
+/**
+ * Extracts a D mangled symbol from the given string for macOS.
+ *
+ * The format of the string is:
+ * `0   main         0x000000010b054ddb _D6module4funcAFZv + 87`
+ *
+ * Params:
+ *  btSymbol = the string to extract the symbol from, in the format mentioned
+ *             above
+ *
+ * Returns: the extracted symbol or null if the given string did not match the
+ *          above format
+ */
+const(char)[] extractSymbol(const(char)[] btSymbol) @nogc nothrow
+{
+    auto symbolStart = size_t.max;
+    auto symbolEnd = size_t.max;
+    bool plus;
+
+    foreach_reverse (i, e ; btSymbol)
+    {
+        if (e == '+')
+        {
+            plus = true;
+            continue;
+        }
+
+        if (plus)
+        {
+            if (e != ' ')
+            {
+                if (symbolEnd == size_t.max)
+                    symbolEnd = i + 1;
+
+                symbolStart = i;
+            }
+            else if (symbolEnd != size_t.max)
+                break;
+        }
     }
 
-    assert(symBeg <= symEnd);
-    assert(symEnd < btSymbol.length);
+    if (symbolStart == size_t.max || symbolEnd == size_t.max)
+        return null;
 
-    import core.demangle;
-    return demangle(btSymbol[symBeg .. symEnd], buffer[]);
+    return btSymbol[symbolStart .. symbolEnd];
 }
 
 T read(T)(ref const(ubyte)[] buffer) @nogc nothrow

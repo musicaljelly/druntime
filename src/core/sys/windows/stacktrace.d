@@ -314,7 +314,7 @@ private:
                     char[2048] demangleBuf = void;
                     const(char)[] tempSymName = symbol.Name.ptr[0 .. strlen(symbol.Name.ptr)];
                     //Deal with dmd mangling of long names
-                    version(DigitalMars) version(Win32)
+                    version(CRuntime_DigitalMars)
                     {
                         size_t decodeIndex = 0;
                         tempSymName = decodeDmdString(tempSymName, decodeIndex);

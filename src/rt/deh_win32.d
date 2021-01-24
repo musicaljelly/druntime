@@ -6,7 +6,7 @@
  *      $(LINK2 http://www.boost.org/LICENSE_1_0.txt, Boost Software License 1.0).
  *    (See accompanying file LICENSE)
  * Authors:   Walter Bright
- * Source: $(DRUNTIMESRC src/rt/deh_win32.d)
+ * Source: $(DRUNTIMESRC rt/deh_win32.d)
  */
 
 module rt.deh_win32;
@@ -546,11 +546,7 @@ EXCEPTION_DISPOSITION _d_framehandler(
                             {   // if it is a short-circuit master, save it
                                 masterError = cast(Error)w;
                             }
-                            Throwable a = w;
-                            while (a.next)
-                                a = a.next;
-                            a.next = prev;
-                            prev = w;
+                            prev = Throwable.chainTogether(w, prev);
                             if (!(z.ExceptionFlags & EXCEPTION_COLLATERAL))
                                 break;
                             z = z.ExceptionRecord;

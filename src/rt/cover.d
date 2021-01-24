@@ -6,7 +6,7 @@
  *      $(LINK2 http://www.boost.org/LICENSE_1_0.txt, Boost Software License 1.0).
  *    (See accompanying file LICENSE)
  * Authors:   Walter Bright, Sean Kelly
- * Source: $(DRUNTIMESRC src/rt/_cover.d)
+ * Source: $(DRUNTIMESRC rt/_cover.d)
  */
 
 module rt.cover;
@@ -135,6 +135,7 @@ extern (C) void dmd_coverSetMerge( bool flag )
  *  filename = The name of the coverage file.
  *  valid    = ???
  *  data     = ???
+ *  minPercent = minimal coverage of the module
  */
 extern (C) void _d_cover_register2(string filename, size_t[] valid, uint[] data, ubyte minPercent)
 {

@@ -3,7 +3,7 @@
  * This module provides functions to converting different values to const(ubyte)[]
  *
  * Copyright: Copyright Igor Stepanov 2013-2013.
- * License:   $(WEB www.boost.org/LICENSE_1_0.txt, Boost License 1.0).
+ * License:   $(HTTP www.boost.org/LICENSE_1_0.txt, Boost License 1.0).
  * Authors:   Igor Stepanov
  * Source: $(DRUNTIMESRC core/internal/_convert.d)
  */
@@ -549,18 +549,26 @@ const(ubyte)[] toUbyte(T)(ref T val) if (is(Unqual!T == cfloat) || is(Unqual!T =
 }
 
 @trusted pure nothrow
-const(ubyte)[] toUbyte(T)(ref T val) if (is(T == enum) && is(typeof(toUbyte(cast(V)val)) == const(ubyte)[]))
+const(ubyte)[] toUbyte(T)(ref T val) if (is(T V == enum) && is(typeof(toUbyte(cast(V)val)) == const(ubyte)[]))
 {
     if (__ctfe)
     {
         static if (is(T V == enum)){}
-        V e_val = val;
-        return toUbyte(e_val);
+        return toUbyte(cast(V) val);
     }
     else
     {
         return (cast(const(ubyte)*)&val)[0 .. T.sizeof];
     }
+}
+
+nothrow pure @safe unittest
+{
+    // Issue 19008 - check toUbyte works on enums.
+    enum Month : uint { jan = 1}
+    Month m = Month.jan;
+    const bytes = toUbyte(m);
+    enum ctfe_works = (() => { Month x = Month.jan; return toUbyte(x).length > 0; })();
 }
 
 private bool isNonReference(T)()

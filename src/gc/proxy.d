@@ -2,7 +2,7 @@
  * Contains the external GC interface.
  *
  * Copyright: Copyright Digital Mars 2005 - 2016.
- * License:   $(WEB www.boost.org/LICENSE_1_0.txt, Boost License 1.0).
+ * License:   $(HTTP www.boost.org/LICENSE_1_0.txt, Boost License 1.0).
  * Authors:   Walter Bright, Sean Kelly
  */
 
@@ -15,6 +15,7 @@ module gc.proxy;
 
 import gc.impl.conservative.gc;
 import gc.impl.manual.gc;
+import gc.impl.proto.gc;
 // !!!
 import gc.impl.scrapheap.gc;
 // !!!
@@ -28,20 +29,16 @@ private
     static import core.memory;
     alias BlkInfo = core.memory.GC.BlkInfo;
 
-    extern (C) void thread_init();
-    extern (C) void thread_term();
+    import core.internal.spinlock;
+    static SpinLock instanceLock;
 
+// !!!
+    __gshared bool isInstanceInit = false;
     __gshared GC proxiedGC; // used to iterate roots of Windows DLLs
     __gshared GC proxiedScrapheap;
-
-    // !!!
     // Stole the name "instance" to refer to the currently set instance. The actual GC instance here is now called "gcInstance"
-    __gshared GC gcInstance;
+    __gshared GC gcInstance = new ProtoGC();
     __gshared GC scrapheapInstance;
-
-    // Used so we can set the proxy before we actually initialize
-    __gshared GC pendingProxyGC;
-    __gshared GC pendingProxyScrapheap;
 
     immutable int ALLOCATOR_STACK_SIZE = 128;
 
@@ -65,37 +62,48 @@ extern (C)
 {
     void gc_init()
     {
-        // !!!
-        config.initialize();
-        ManualGC.initialize(gcInstance);
-        ConservativeGC.initialize(gcInstance);
-        ScrapheapGC.initialize(scrapheapInstance);
-        if (gcInstance is null)
+        instanceLock.lock();
+        if (!isInstanceInit)
         {
-            import core.stdc.stdio : fprintf, stderr;
-            import core.stdc.stdlib : exit;
+            // !!!
+            auto protoInstance = gcInstance;
+            config.initialize();
+            ManualGC.initialize(gcInstance);
+            ConservativeGC.initialize(gcInstance);
+            ScrapheapGC.initialize(scrapheapInstance);
 
-            fprintf(stderr, "No GC was initialized, please recheck the name of the selected GC ('%.*s').\n", cast(int)config.gc.length, config.gc.ptr);
-            exit(1);
+            if (gcInstance is protoInstance)
+            {
+                import core.stdc.stdio : fprintf, stderr;
+                import core.stdc.stdlib : exit;
+
+                fprintf(stderr, "No GC was initialized, please recheck the name of the selected GC ('%.*s').\n", cast(int)config.gc.length, config.gc.ptr);
+                instanceLock.unlock();
+                exit(1);
+
+                // Shouldn't get here.
+                assert(0);
+            }
+            
+            instance = &gcInstance;
+            // !!!
+
+            // Transfer all ranges and roots to the real GC.
+            (cast(ProtoGC) protoInstance).term();
+            isInstanceInit = true;
         }
+        instanceLock.unlock();
+    }
 
-        // Briefly set the instance to Game's GC so we can set up roots and ranges.
-        // If we have a pending GC proxy, then we'll very quickly get updated to point properly at that
-        instance = &gcInstance;
-
-        import rt.memory;
-        initStaticDataGC();
-
-        if (pendingProxyGC !is null)
+    void gc_init_nothrow() nothrow
+    {
+        scope(failure)
         {
-            gc_setProxy(pendingProxyGC, pendingProxyScrapheap);
-            pendingProxyGC = null;
-            pendingProxyScrapheap = null;
+            import core.internal.abort;
+            abort("Cannot initialize the garbage collector.\n");
+            assert(0);
         }
-
-        // NOTE: The GC must initialize the thread library
-        //       before its first collection.
-        thread_init();
+        gc_init();
     }
 
     void gc_term()
@@ -111,14 +119,15 @@ extern (C)
         //       the problems mentioned above though, so I guess we'll see.
 
         // !!!
-        gcInstance.collectNoStack(); // not really a 'collect all' -- still scans
-                                    // static data area, roots, and ranges.
+        if (isInstanceInit)
+        {
+            gcInstance.collectNoStack();  // not really a 'collect all' -- still scans
+                                        // static data area, roots, and ranges.
 
-        thread_term();
-
-        ManualGC.finalize(gcInstance);
-        ConservativeGC.finalize(gcInstance);
-        ScrapheapGC.finalize(scrapheapInstance);
+            ManualGC.finalize(gcInstance);
+            ConservativeGC.finalize(gcInstance);
+            ScrapheapGC.finalize(scrapheapInstance);
+        }
         // !!!
     }
 
@@ -212,7 +221,7 @@ extern (C)
         return instance.stats();
     }
 
-    void gc_addRoot( void* p ) nothrow
+    void gc_addRoot( void* p ) nothrow @nogc
     {
         // Always use GC instance for addRoot, addRange etc.
         // druntime/phobos code sometimes adds roots and ranges at unexpected times, for example, in the phobos Array implementation.
@@ -220,7 +229,7 @@ extern (C)
         return gcInstance.addRoot( p );
     }
 
-    void gc_addRange( void* p, size_t sz, const TypeInfo ti = null ) nothrow
+    void gc_addRange( void* p, size_t sz, const TypeInfo ti = null ) nothrow @nogc
     {
         return gcInstance.addRange( p, sz, ti );
     }
@@ -263,31 +272,21 @@ extern (C)
         // !!!
         void gc_setProxy(GC gcProxyToSet, GC scrapheapProxyToSet)
         {
-            if (gcInstance is null)
+            foreach(root; gcInstance.rootIter)
             {
-                // We haven't initialized yet. Just keep track of the proxies we'd like to use for now, then actually call
-                // gc_setProxy() again from gc_init()
-                pendingProxyGC = gcProxyToSet;
-                pendingProxyScrapheap = scrapheapProxyToSet;
+                gcProxyToSet.addRoot(root);
             }
-            else
+
+            foreach(range; gcInstance.rangeIter)
             {
-                foreach(root; gcInstance.rootIter)
-                {
-                    gcProxyToSet.addRoot(root);
-                }
-
-                foreach(range; gcInstance.rangeIter)
-                {
-                    gcProxyToSet.addRange(range.pbot, range.ptop - range.pbot, range.ti);
-                }
-
-                proxiedGC = gcInstance; // remember initial GCs to later remove roots
-                proxiedScrapheap = scrapheapInstance;
-
-                gcInstance = gcProxyToSet;
-                scrapheapInstance = scrapheapProxyToSet;
+                gcProxyToSet.addRange(range.pbot, range.ptop - range.pbot, range.ti);
             }
+
+            proxiedGC = gcInstance; // remember initial GCs to later remove roots
+            proxiedScrapheap = scrapheapInstance;
+
+            gcInstance = gcProxyToSet;
+            scrapheapInstance = scrapheapProxyToSet;
         }
         // !!!
 

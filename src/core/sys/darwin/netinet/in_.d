@@ -4,8 +4,8 @@
     D header file for Darwin's extensions to POSIX's netinet/in.h.
 
     Copyright: Copyright 2017 -
-    License:   $(WEB www.boost.org/LICENSE_1_0.txt, Boost License 1.0).
-    Authors:   Jonathan M Davis
+    License:   $(HTTP www.boost.org/LICENSE_1_0.txt, Boost License 1.0).
+    Authors:   $(HTTP jmdavisprog.com, Jonathan M Davis)
  +/
 module core.sys.darwin.netinet.in_;
 

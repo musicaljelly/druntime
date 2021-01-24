@@ -8,7 +8,7 @@
  *      $(LINK2 http://www.boost.org/LICENSE_1_0.txt, Boost Software License 1.0).
  *    (See accompanying file LICENSE)
  * Authors:   Andrei Alexandrescu and Walter Bright
- * Source: $(DRUNTIMESRC src/rt/_profilegc.d)
+ * Source: $(DRUNTIMESRC rt/_profilegc.d)
  */
 
 module rt.profilegc;
@@ -113,7 +113,7 @@ shared static ~this()
         Entry entry;
 
         // qsort() comparator to sort by count field
-        extern (C) static int qsort_cmp(scope const void *r1, scope const void *r2)
+        extern (C) static int qsort_cmp(scope const void *r1, scope const void *r2) @nogc nothrow
         {
             auto result1 = cast(Result*)r1;
             auto result2 = cast(Result*)r2;

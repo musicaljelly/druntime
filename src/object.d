@@ -4,19 +4,11 @@
  * imported.
  *
  * Copyright: Copyright Digital Mars 2000 - 2011.
- * License:   $(WEB www.boost.org/LICENSE_1_0.txt, Boost License 1.0).
+ * License:   $(HTTP www.boost.org/LICENSE_1_0.txt, Boost License 1.0).
  * Authors:   Walter Bright, Sean Kelly
  */
 
 module object;
-
-private
-{
-    extern (C) Object _d_newclass(const TypeInfo_Class ci);
-    extern (C) void rt_finalize(void *data, bool det=true);
-}
-
-public @trusted @nogc nothrow pure extern (C) void _d_delThrowable(scope Throwable);
 
 // NOTE: For some reason, this declaration method doesn't work
 //       in this particular file (and this file only).  It must
@@ -45,6 +37,820 @@ alias wstring = immutable(wchar)[];
 alias dstring = immutable(dchar)[];
 
 version (D_ObjectiveC) public import core.attribute : selector;
+
+int __cmp(T)(const T[] lhs, const T[] rhs) @trusted
+    if (__traits(isScalar, T))
+{
+    // Compute U as the implementation type for T
+    static if (is(T == ubyte) || is(T == void) || is(T == bool))
+        alias U = char;
+    else static if (is(T == wchar))
+        alias U = ushort;
+    else static if (is(T == dchar))
+        alias U = uint;
+    else static if (is(T == ifloat))
+        alias U = float;
+    else static if (is(T == idouble))
+        alias U = double;
+    else static if (is(T == ireal))
+        alias U = real;
+    else
+        alias U = T;
+
+    static if (is(U == char))
+    {
+        import core.internal.string : dstrcmp;
+        return dstrcmp(cast(char[]) lhs, cast(char[]) rhs);
+    }
+    else static if (!is(U == T))
+    {
+        // Reuse another implementation
+        return __cmp(cast(U[]) lhs, cast(U[]) rhs);
+    }
+    else
+    {
+        immutable len = lhs.length <= rhs.length ? lhs.length : rhs.length;
+        foreach (const u; 0 .. len)
+        {
+            static if (__traits(isFloating, T))
+            {
+                immutable a = lhs.ptr[u], b = rhs.ptr[u];
+                static if (is(T == cfloat) || is(T == cdouble)
+                    || is(T == creal))
+                {
+                    // Use rt.cmath2._Ccmp instead ?
+                    auto r = (a.re > b.re) - (a.re < b.re);
+                    if (!r) r = (a.im > b.im) - (a.im < b.im);
+                }
+                else
+                {
+                    const r = (a > b) - (a < b);
+                }
+                if (r) return r;
+            }
+            else if (lhs.ptr[u] != rhs.ptr[u])
+                return lhs.ptr[u] < rhs.ptr[u] ? -1 : 1;
+        }
+        return lhs.length < rhs.length ? -1 : (lhs.length > rhs.length);
+    }
+}
+
+    // Compare class and interface objects for ordering.
+    private int __cmp(Obj)(Obj lhs, Obj rhs)
+    if (is(Obj : Object))
+    {
+        if (lhs is rhs)
+            return 0;
+        // Regard null references as always being "less than"
+        if (!lhs)
+            return -1;
+        if (!rhs)
+            return 1;
+        return lhs.opCmp(rhs);
+    }
+
+    // This function is called by the compiler when dealing with array
+    // comparisons in the semantic analysis phase of CmpExp. The ordering
+    // comparison is lowered to a call to this template.
+    int __cmp(T1, T2)(T1[] s1, T2[] s2)
+    if (!__traits(isScalar, T1) && !__traits(isScalar, T2))
+    {
+        import core.internal.traits : Unqual;
+        alias U1 = Unqual!T1;
+        alias U2 = Unqual!T2;
+
+        static if (is(U1 == void) && is(U2 == void))
+            static @trusted ref inout(ubyte) at(inout(void)[] r, size_t i) { return (cast(inout(ubyte)*) r.ptr)[i]; }
+        else
+            static @trusted ref R at(R)(R[] r, size_t i) { return r.ptr[i]; }
+
+        // All unsigned byte-wide types = > dstrcmp
+        immutable len = s1.length <= s2.length ? s1.length : s2.length;
+
+        foreach (const u; 0 .. len)
+        {
+            static if (__traits(compiles, __cmp(at(s1, u), at(s2, u))))
+            {
+                auto c = __cmp(at(s1, u), at(s2, u));
+                if (c != 0)
+                    return c;
+            }
+            else static if (__traits(compiles, at(s1, u).opCmp(at(s2, u))))
+            {
+                auto c = at(s1, u).opCmp(at(s2, u));
+                if (c != 0)
+                    return c;
+            }
+            else static if (__traits(compiles, at(s1, u) < at(s2, u)))
+            {
+                if (at(s1, u) != at(s2, u))
+                    return at(s1, u) < at(s2, u) ? -1 : 1;
+            }
+            else
+            {
+                // TODO: fix this legacy bad behavior, see
+                // https://issues.dlang.org/show_bug.cgi?id=17244
+                static assert(is(U1 == U2), "Internal error.");
+                import core.stdc.string : memcmp;
+                auto c = (() @trusted => memcmp(&at(s1, u), &at(s2, u), U1.sizeof))();
+                if (c != 0)
+                    return c;
+            }
+        }
+        return s1.length < s2.length ? -1 : (s1.length > s2.length);
+    }
+
+    // integral types
+    @safe unittest
+    {
+        void compareMinMax(T)()
+        {
+            T[2] a = [T.max, T.max];
+            T[2] b = [T.min, T.min];
+
+            assert(__cmp(a, b) > 0);
+            assert(__cmp(b, a) < 0);
+        }
+
+        compareMinMax!int;
+        compareMinMax!uint;
+        compareMinMax!long;
+        compareMinMax!ulong;
+        compareMinMax!short;
+        compareMinMax!ushort;
+        compareMinMax!byte;
+        compareMinMax!dchar;
+        compareMinMax!wchar;
+    }
+
+    // char types (dstrcmp)
+    @safe unittest
+    {
+        void compareMinMax(T)()
+        {
+            T[2] a = [T.max, T.max];
+            T[2] b = [T.min, T.min];
+
+            assert(__cmp(a, b) > 0);
+            assert(__cmp(b, a) < 0);
+        }
+
+        compareMinMax!ubyte;
+        compareMinMax!bool;
+        compareMinMax!char;
+        compareMinMax!(const char);
+
+        string s1 = "aaaa";
+        string s2 = "bbbb";
+        assert(__cmp(s2, s1) > 0);
+        assert(__cmp(s1, s2) < 0);
+    }
+
+    // fp types
+    @safe unittest
+    {
+        void compareMinMax(T)()
+        {
+            T[2] a = [T.max, T.max];
+            T[2] b = [T.min_normal, T.min_normal];
+            T[2] c = [T.max, T.min_normal];
+            T[1] d = [T.max];
+
+            assert(__cmp(a, b) > 0);
+            assert(__cmp(b, a) < 0);
+            assert(__cmp(a, c) > 0);
+            assert(__cmp(a, d) > 0);
+            assert(__cmp(d, c) < 0);
+            assert(__cmp(c, c) == 0);
+        }
+
+        compareMinMax!real;
+        compareMinMax!float;
+        compareMinMax!double;
+        compareMinMax!ireal;
+        compareMinMax!ifloat;
+        compareMinMax!idouble;
+        compareMinMax!creal;
+        //compareMinMax!cfloat;
+        compareMinMax!cdouble;
+
+        // qualifiers
+        compareMinMax!(const real);
+        compareMinMax!(immutable real);
+    }
+
+    // void[]
+    @safe unittest
+    {
+        void[] a;
+        const(void)[] b;
+
+        (() @trusted
+        {
+            a = cast(void[]) "bb";
+            b = cast(const(void)[]) "aa";
+        })();
+
+        assert(__cmp(a, b) > 0);
+        assert(__cmp(b, a) < 0);
+    }
+
+    // arrays of arrays with mixed modifiers
+    @safe unittest
+    {
+        // https://issues.dlang.org/show_bug.cgi?id=17876
+        bool less1(immutable size_t[][] a, size_t[][] b) { return a < b; }
+        bool less2(const void[][] a, void[][] b) { return a < b; }
+        bool less3(inout size_t[][] a, size_t[][] b) { return a < b; }
+
+        immutable size_t[][] a = [[1, 2], [3, 4]];
+        size_t[][] b = [[1, 2], [3, 5]];
+        assert(less1(a, b));
+        assert(less3(a, b));
+
+        auto va = [cast(immutable void[])a[0], a[1]];
+        auto vb = [cast(void[])b[0], b[1]];
+        assert(less2(va, vb));
+    }
+
+    // objects
+    @safe unittest
+    {
+        class C
+        {
+            int i;
+            this(int i) { this.i = i; }
+
+            override int opCmp(Object c) const @safe
+            {
+                return i - (cast(C)c).i;
+            }
+        }
+
+        auto c1 = new C(1);
+        auto c2 = new C(2);
+        assert(__cmp(c1, null) > 0);
+        assert(__cmp(null, c1) < 0);
+        assert(__cmp(c1, c1) == 0);
+        assert(__cmp(c1, c2) < 0);
+        assert(__cmp(c2, c1) > 0);
+
+        assert(__cmp([c1, c1][], [c2, c2][]) < 0);
+        assert(__cmp([c2, c2], [c1, c1]) > 0);
+    }
+
+    // structs
+    @safe unittest
+    {
+        struct C
+        {
+            ubyte i;
+            this(ubyte i) { this.i = i; }
+        }
+
+        auto c1 = C(1);
+        auto c2 = C(2);
+
+        assert(__cmp([c1, c1][], [c2, c2][]) < 0);
+        assert(__cmp([c2, c2], [c1, c1]) > 0);
+        assert(__cmp([c2, c2], [c2, c1]) > 0);
+    }
+
+// `lhs == rhs` lowers to `__equals(lhs, rhs)` for dynamic arrays
+bool __equals(T1, T2)(T1[] lhs, T2[] rhs)
+{
+    import core.internal.traits : Unqual;
+    alias U1 = Unqual!T1;
+    alias U2 = Unqual!T2;
+
+    static @trusted ref R at(R)(R[] r, size_t i) { return r.ptr[i]; }
+    static @trusted R trustedCast(R, S)(S[] r) { return cast(R) r; }
+
+    if (lhs.length != rhs.length)
+        return false;
+
+    if (lhs.length == 0 && rhs.length == 0)
+        return true;
+
+    static if (is(U1 == void) && is(U2 == void))
+    {
+        return __equals(trustedCast!(ubyte[])(lhs), trustedCast!(ubyte[])(rhs));
+    }
+    else static if (is(U1 == void))
+    {
+        return __equals(trustedCast!(ubyte[])(lhs), rhs);
+    }
+    else static if (is(U2 == void))
+    {
+        return __equals(lhs, trustedCast!(ubyte[])(rhs));
+    }
+    else static if (!is(U1 == U2))
+    {
+        // This should replace src/object.d _ArrayEq which
+        // compares arrays of different types such as long & int,
+        // char & wchar.
+        // Compiler lowers to __ArrayEq in dmd/src/opover.d
+        foreach (const u; 0 .. lhs.length)
+        {
+            if (at(lhs, u) != at(rhs, u))
+                return false;
+        }
+        return true;
+    }
+    else static if (__traits(isIntegral, U1))
+    {
+
+        if (!__ctfe)
+        {
+            import core.stdc.string : memcmp;
+            return () @trusted { return memcmp(cast(void*)lhs.ptr, cast(void*)rhs.ptr, lhs.length * U1.sizeof) == 0; }();
+        }
+        else
+        {
+            foreach (const u; 0 .. lhs.length)
+            {
+                if (at(lhs, u) != at(rhs, u))
+                    return false;
+            }
+            return true;
+        }
+    }
+    else
+    {
+        foreach (const u; 0 .. lhs.length)
+        {
+            static if (__traits(compiles, __equals(at(lhs, u), at(rhs, u))))
+            {
+                if (!__equals(at(lhs, u), at(rhs, u)))
+                    return false;
+            }
+            else static if (__traits(isFloating, U1))
+            {
+                if (at(lhs, u) != at(rhs, u))
+                    return false;
+            }
+            else static if (is(U1 : Object) && is(U2 : Object))
+            {
+                if (!(cast(Object)at(lhs, u) is cast(Object)at(rhs, u)
+                    || at(lhs, u) && (cast(Object)at(lhs, u)).opEquals(cast(Object)at(rhs, u))))
+                    return false;
+            }
+            else static if (__traits(hasMember, U1, "opEquals"))
+            {
+                if (!at(lhs, u).opEquals(at(rhs, u)))
+                    return false;
+            }
+            else static if (is(U1 == delegate))
+            {
+                if (at(lhs, u) != at(rhs, u))
+                    return false;
+            }
+            else static if (is(U1 == U11*, U11))
+            {
+                if (at(lhs, u) != at(rhs, u))
+                    return false;
+            }
+            else static if (__traits(isAssociativeArray, U1))
+            {
+                if (at(lhs, u) != at(rhs, u))
+                    return false;
+            }
+            else
+            {
+                if (at(lhs, u).tupleof != at(rhs, u).tupleof)
+                    return false;
+            }
+        }
+
+        return true;
+    }
+}
+
+unittest {
+    assert(__equals([], []));
+    assert(!__equals([1, 2], [1, 2, 3]));
+}
+
+unittest
+{
+    struct A
+    {
+        int a;
+    }
+
+    auto arr1 = [A(0), A(2)];
+    auto arr2 = [A(0), A(1)];
+    auto arr3 = [A(0), A(1)];
+
+    assert(arr1 != arr2);
+    assert(arr2 == arr3);
+}
+
+unittest
+{
+    struct A
+    {
+        int a;
+        int b;
+
+        bool opEquals(const A other)
+        {
+            return this.a == other.b && this.b == other.a;
+        }
+    }
+
+    auto arr1 = [A(1, 0), A(0, 1)];
+    auto arr2 = [A(1, 0), A(0, 1)];
+    auto arr3 = [A(0, 1), A(1, 0)];
+
+    assert(arr1 != arr2);
+    assert(arr2 == arr3);
+}
+
+// https://issues.dlang.org/show_bug.cgi?id=18252
+unittest
+{
+    string[int][] a1, a2;
+    assert(__equals(a1, a2));
+    assert(a1 == a2);
+    a1 ~= [0: "zero"];
+    a2 ~= [0: "zero"];
+    assert(__equals(a1, a2));
+    assert(a1 == a2);
+    a2[0][1] = "one";
+    assert(!__equals(a1, a2));
+    assert(a1 != a2);
+}
+
+/**
+Destroys the given object and sets it back to its initial state. It's used to
+_destroy an object, calling its destructor or finalizer so it no longer
+references any other objects. It does $(I not) initiate a GC cycle or free
+any GC memory.
+*/
+void destroy(T)(ref T obj) if (is(T == struct))
+{
+    // We need to re-initialize `obj`.  Previously, the code
+    // `auto init = cast(ubyte[])typeid(T).initializer()` was used, but
+    // `typeid` is a runtime call and requires the `TypeInfo` object which is
+    // not usable when compiling with -betterC.  If we do `obj = T.init` then we
+    // end up needlessly calling postblits and destructors.  So, we create a
+    // static immutable lvalue that can be re-used with subsequent calls to `destroy`
+    shared static immutable T init = T.init;
+
+    _destructRecurse(obj);
+    () @trusted {
+        import core.stdc.string : memcpy;
+        auto dest = (cast(ubyte*) &obj)[0 .. T.sizeof];
+        auto src = (cast(ubyte*) &init)[0 .. T.sizeof];
+        memcpy(dest.ptr, src.ptr, T.sizeof);
+    } ();
+}
+
+private void _destructRecurse(S)(ref S s)
+    if (is(S == struct))
+{
+    static if (__traits(hasMember, S, "__xdtor") &&
+            // Bugzilla 14746: Check that it's the exact member of S.
+            __traits(isSame, S, __traits(parent, s.__xdtor)))
+        s.__xdtor();
+}
+
+nothrow @safe @nogc unittest
+{
+    {
+        struct A { string s = "A";  }
+        A a;
+        a.s = "asd";
+        destroy(a);
+        assert(a.s == "A");
+    }
+    {
+        static int destroyed = 0;
+        struct C
+        {
+            string s = "C";
+            ~this() nothrow @safe @nogc
+            {
+                destroyed ++;
+            }
+        }
+
+        struct B
+        {
+            C c;
+            string s = "B";
+            ~this() nothrow @safe @nogc
+            {
+                destroyed ++;
+            }
+        }
+        B a;
+        a.s = "asd";
+        a.c.s = "jkl";
+        destroy(a);
+        assert(destroyed == 2);
+        assert(a.s == "B");
+        assert(a.c.s == "C" );
+    }
+}
+
+
+    /// ditto
+    void destroy(T)(T obj) if (is(T == class))
+    {
+        static if(__traits(getLinkage, T) == "C++")
+        {
+            obj.__xdtor();
+
+            enum classSize = __traits(classInstanceSize, T);
+            (cast(void*)obj)[0 .. classSize] = typeid(T).initializer[];
+        }
+        else
+            rt_finalize(cast(void*)obj);
+    }
+
+    /// ditto
+    void destroy(T)(T obj) if (is(T == interface))
+    {
+        destroy(cast(Object)obj);
+    }
+
+    /// Reference type demonstration
+    unittest
+    {
+        class C
+        {
+            struct Agg
+            {
+                static int dtorCount;
+
+                int x = 10;
+                ~this() { dtorCount++; }
+            }
+
+            static int dtorCount;
+
+            string s = "S";
+            Agg a;
+            ~this() { dtorCount++; }
+        }
+
+        C c = new C();
+        assert(c.dtorCount == 0);   // destructor not yet called
+        assert(c.s == "S");         // initial state `c.s` is `"S"`
+        assert(c.a.dtorCount == 0); // destructor not yet called
+        assert(c.a.x == 10);        // initial state `c.a.x` is `10`
+        c.s = "T";
+        c.a.x = 30;
+        assert(c.s == "T");         // `c.s` is `"T"`
+        destroy(c);
+        assert(c.dtorCount == 1);   // `c`'s destructor was called
+        assert(c.s == "S");         // `c.s` is back to its inital state, `"S"`
+        assert(c.a.dtorCount == 1); // `c.a`'s destructor was called
+        assert(c.a.x == 10);        // `c.a.x` is back to its inital state, `10`
+
+        // check C++ classes work too!
+        extern (C++) class CPP
+        {
+            struct Agg
+            {
+                __gshared int dtorCount;
+
+                int x = 10;
+                ~this() { dtorCount++; }
+            }
+
+            __gshared int dtorCount;
+
+            string s = "S";
+            Agg a;
+            ~this() { dtorCount++; }
+        }
+
+        CPP cpp = new CPP();
+        assert(cpp.dtorCount == 0);   // destructor not yet called
+        assert(cpp.s == "S");         // initial state `cpp.s` is `"S"`
+        assert(cpp.a.dtorCount == 0); // destructor not yet called
+        assert(cpp.a.x == 10);        // initial state `cpp.a.x` is `10`
+        cpp.s = "T";
+        cpp.a.x = 30;
+        assert(cpp.s == "T");         // `cpp.s` is `"T"`
+        destroy(cpp);
+        assert(cpp.dtorCount == 1);   // `cpp`'s destructor was called
+        assert(cpp.s == "S");         // `cpp.s` is back to its inital state, `"S"`
+        assert(cpp.a.dtorCount == 1); // `cpp.a`'s destructor was called
+        assert(cpp.a.x == 10);        // `cpp.a.x` is back to its inital state, `10`
+    }
+
+    /// Value type demonstration
+    unittest
+    {
+        int i;
+        assert(i == 0);           // `i`'s initial state is `0`
+        i = 1;
+        assert(i == 1);           // `i` changed to `1`
+        destroy(i);
+        assert(i == 0);           // `i` is back to its initial state `0`
+    }
+
+    unittest
+    {
+        interface I { }
+        {
+            class A: I { string s = "A"; this() {} }
+            auto a = new A, b = new A;
+            a.s = b.s = "asd";
+            destroy(a);
+            assert(a.s == "A");
+
+            I i = b;
+            destroy(i);
+            assert(b.s == "A");
+        }
+        {
+            static bool destroyed = false;
+            class B: I
+            {
+                string s = "B";
+                this() {}
+                ~this()
+                {
+                    destroyed = true;
+                }
+            }
+            auto a = new B, b = new B;
+            a.s = b.s = "asd";
+            destroy(a);
+            assert(destroyed);
+            assert(a.s == "B");
+
+            destroyed = false;
+            I i = b;
+            destroy(i);
+            assert(destroyed);
+            assert(b.s == "B");
+        }
+        // this test is invalid now that the default ctor is not run after clearing
+        version(none)
+        {
+            class C
+            {
+                string s;
+                this()
+                {
+                    s = "C";
+                }
+            }
+            auto a = new C;
+            a.s = "asd";
+            destroy(a);
+            assert(a.s == "C");
+        }
+    }
+
+    nothrow @safe @nogc unittest
+    {
+        {
+            struct A { string s = "A";  }
+            A a;
+            a.s = "asd";
+            destroy(a);
+            assert(a.s == "A");
+        }
+        {
+            static int destroyed = 0;
+            struct C
+            {
+                string s = "C";
+                ~this() nothrow @safe @nogc
+                {
+                    destroyed ++;
+                }
+            }
+
+            struct B
+            {
+                C c;
+                string s = "B";
+                ~this() nothrow @safe @nogc
+                {
+                    destroyed ++;
+                }
+            }
+            B a;
+            a.s = "asd";
+            a.c.s = "jkl";
+            destroy(a);
+            assert(destroyed == 2);
+            assert(a.s == "B");
+            assert(a.c.s == "C" );
+        }
+    }
+
+    /// ditto
+    void destroy(T : U[n], U, size_t n)(ref T obj) if (!is(T == struct))
+    {
+        foreach_reverse (ref e; obj[])
+            destroy(e);
+    }
+
+    unittest
+    {
+        int[2] a;
+        a[0] = 1;
+        a[1] = 2;
+        destroy(a);
+        assert(a == [ 0, 0 ]);
+    }
+
+    unittest
+    {
+        static struct vec2f {
+            float[2] values;
+            alias values this;
+        }
+
+        vec2f v;
+        destroy!vec2f(v);
+    }
+
+    unittest
+    {
+        // Bugzilla 15009
+        static string op;
+        static struct S
+        {
+            int x;
+            this(int x) { op ~= "C" ~ cast(char)('0'+x); this.x = x; }
+            this(this)  { op ~= "P" ~ cast(char)('0'+x); }
+            ~this()     { op ~= "D" ~ cast(char)('0'+x); }
+        }
+
+        {
+            S[2] a1 = [S(1), S(2)];
+            op = "";
+        }
+        assert(op == "D2D1");   // built-in scope destruction
+        {
+            S[2] a1 = [S(1), S(2)];
+            op = "";
+            destroy(a1);
+            assert(op == "D2D1");   // consistent with built-in behavior
+        }
+
+        {
+            S[2][2] a2 = [[S(1), S(2)], [S(3), S(4)]];
+            op = "";
+        }
+        assert(op == "D4D3D2D1");
+        {
+            S[2][2] a2 = [[S(1), S(2)], [S(3), S(4)]];
+            op = "";
+            destroy(a2);
+            assert(op == "D4D3D2D1", op);
+        }
+    }
+
+    /// ditto
+    void destroy(T)(ref T obj)
+        if (!is(T == struct) && !is(T == interface) && !is(T == class) && !_isStaticArray!T)
+    {
+        obj = T.init;
+    }
+
+    template _isStaticArray(T : U[N], U, size_t N)
+    {
+        enum bool _isStaticArray = true;
+    }
+
+    template _isStaticArray(T)
+    {
+        enum bool _isStaticArray = false;
+    }
+
+    unittest
+    {
+        {
+            int a = 42;
+            destroy(a);
+            assert(a == 0);
+        }
+        {
+            float a = 42;
+            destroy(a);
+            assert(isnan(a));
+        }
+    }
+
+
+private
+{
+    extern (C) Object _d_newclass(const TypeInfo_Class ci);
+    extern (C) void rt_finalize(void *data, bool det=true);
+}
+
+public @trusted @nogc nothrow pure extern (C) void _d_delThrowable(scope Throwable);
 
 /**
  * All D class objects inherit from Object.
@@ -137,7 +943,7 @@ class Object
     }
 }
 
-auto opEquals(Object lhs, Object rhs)
+bool opEquals(Object lhs, Object rhs)
 {
     // If aliased to the same object or both null => equal
     if (lhs is rhs) return true;
@@ -162,7 +968,7 @@ auto opEquals(Object lhs, Object rhs)
 /************************
 * Returns true if lhs and rhs are equal.
 */
-auto opEquals(const Object lhs, const Object rhs)
+bool opEquals(const Object lhs, const Object rhs)
 {
     // A hack for the moment.
     return opEquals(cast()lhs, cast()rhs);
@@ -219,9 +1025,7 @@ class TypeInfo
 
     override int opCmp(Object o)
     {
-        import core.internal.traits : externDFunc;
-        alias dstrcmp = externDFunc!("core.internal.string.dstrcmp",
-                                     int function(scope const char[] s1, scope const char[] s2) @trusted pure nothrow @nogc);
+        import core.internal.string : dstrcmp;
 
         if (this is o)
             return 0;
@@ -252,7 +1056,7 @@ class TypeInfo
      * Bugs:
      *    fix https://issues.dlang.org/show_bug.cgi?id=12516 e.g. by changing this to a truly safe interface.
      */
-    size_t getHash(in void* p) @trusted nothrow const { return cast(size_t)p; }
+    size_t getHash(scope const void* p) @trusted nothrow const { return cast(size_t)p; }
 
     /// Compares two instances for equality.
     bool equals(in void* p1, in void* p2) const { return p1 == p2; }
@@ -329,7 +1133,7 @@ class TypeInfo_Enum : TypeInfo
                     this.base == c.base;
     }
 
-    override size_t getHash(in void* p) const { return base.getHash(p); }
+    override size_t getHash(scope const void* p) const { return base.getHash(p); }
     override bool equals(in void* p1, in void* p2) const { return base.equals(p1, p2); }
     override int compare(in void* p1, in void* p2) const { return base.compare(p1, p2); }
     override @property size_t tsize() nothrow pure const { return base.tsize; }
@@ -377,7 +1181,7 @@ class TypeInfo_Pointer : TypeInfo
         return c && this.m_next == c.m_next;
     }
 
-    override size_t getHash(in void* p) @trusted const
+    override size_t getHash(scope const void* p) @trusted const
     {
         return cast(size_t)*cast(void**)p;
     }
@@ -432,7 +1236,7 @@ class TypeInfo_Array : TypeInfo
         return c && this.value == c.value;
     }
 
-    override size_t getHash(in void* p) @trusted const
+    override size_t getHash(scope const void* p) @trusted const
     {
         void[] a = *cast(void[]*)p;
         return getArrayHash(value, a.ptr, a.length);
@@ -529,7 +1333,7 @@ class TypeInfo_StaticArray : TypeInfo
                     this.value == c.value;
     }
 
-    override size_t getHash(in void* p) @trusted const
+    override size_t getHash(scope const void* p) @trusted const
     {
         return getArrayHash(value, p, len);
     }
@@ -655,7 +1459,7 @@ class TypeInfo_AssociativeArray : TypeInfo
         return !!_aaEqual(this, *cast(const void**) p1, *cast(const void**) p2);
     }
 
-    override hash_t getHash(in void* p) nothrow @trusted const
+    override hash_t getHash(scope const void* p) nothrow @trusted const
     {
         return _aaGetHash(cast(void*)p, this);
     }
@@ -702,7 +1506,7 @@ class TypeInfo_Vector : TypeInfo
         return c && this.base == c.base;
     }
 
-    override size_t getHash(in void* p) const { return base.getHash(p); }
+    override size_t getHash(scope const void* p) const { return base.getHash(p); }
     override bool equals(in void* p1, in void* p2) const { return base.equals(p1, p2); }
     override int compare(in void* p1, in void* p2) const { return base.compare(p1, p2); }
     override @property size_t tsize() nothrow pure const { return base.tsize; }
@@ -796,7 +1600,7 @@ class TypeInfo_Delegate : TypeInfo
         return c && this.deco == c.deco;
     }
 
-    override size_t getHash(in void* p) @trusted const
+    override size_t getHash(scope const void* p) @trusted const
     {
         return hashOf(*cast(void delegate()*)p);
     }
@@ -896,7 +1700,7 @@ class TypeInfo_Class : TypeInfo
         return c && this.info.name == c.info.name;
     }
 
-    override size_t getHash(in void* p) @trusted const
+    override size_t getHash(scope const void* p) @trusted const
     {
         auto o = *cast(Object*)p;
         return o ? o.toHash() : 0;
@@ -1051,7 +1855,7 @@ class TypeInfo_Interface : TypeInfo
         return c && this.info.name == typeid(c).name;
     }
 
-    override size_t getHash(in void* p) @trusted const
+    override size_t getHash(scope const void* p) @trusted const
     {
         Interface* pi = **cast(Interface ***)*cast(void**)p;
         Object o = cast(Object)(*cast(void**)p - pi.offset);
@@ -1121,7 +1925,7 @@ class TypeInfo_Struct : TypeInfo
                     this.initializer().length == s.initializer().length;
     }
 
-    override size_t getHash(in void* p) @trusted pure nothrow const
+    override size_t getHash(scope const void* p) @trusted pure nothrow const
     {
         assert(p);
         if (xtoHash)
@@ -1296,7 +2100,7 @@ class TypeInfo_Tuple : TypeInfo
         return false;
     }
 
-    override size_t getHash(in void* p) const
+    override size_t getHash(scope const void* p) const
     {
         assert(0);
     }
@@ -1367,7 +2171,7 @@ class TypeInfo_Const : TypeInfo
         return base.opEquals(t.base);
     }
 
-    override size_t getHash(in void *p) const { return base.getHash(p); }
+    override size_t getHash(scope const void *p) const { return base.getHash(p); }
     override bool equals(in void *p1, in void *p2) const { return base.equals(p1, p2); }
     override int compare(in void *p1, in void *p2) const { return base.compare(p1, p2); }
     override @property size_t tsize() nothrow pure const { return base.tsize; }
@@ -1453,7 +2257,6 @@ struct ModuleInfo
     else
     {
         @disable this();
-        @disable this(this) const;
     }
 
 const:
@@ -1704,11 +2507,38 @@ class Throwable : Object
      * caught $(D Exception) will be chained to the new $(D Throwable) via this
      * field.
      */
-    Throwable   next;
+    private Throwable   nextInChain;
 
     private uint _refcount;     // 0 : allocated by GC
                                 // 1 : allocated by _d_newThrowable()
                                 // 2.. : reference count + 1
+
+    /**
+     * Returns:
+     * A reference to the _next error in the list. This is used when a new
+     * $(D Throwable) is thrown from inside a $(D catch) block. The originally
+     * caught $(D Exception) will be chained to the new $(D Throwable) via this
+     * field.
+     */
+    @property inout(Throwable) next() @safe inout return scope pure nothrow @nogc { return nextInChain; }
+
+    /**
+     * Replace next in chain with `tail`.
+     * Use `chainTogether` instead if at all possible.
+     */
+    @property void next(Throwable tail) @safe scope pure nothrow @nogc
+    {
+        if (tail && tail._refcount)
+            ++tail._refcount;           // increment the replacement *first*
+
+        auto n = nextInChain;
+        nextInChain = null;             // sever the tail before deleting it
+
+        if (n && n._refcount)
+            _d_delThrowable(n);         // now delete the old tail
+
+        nextInChain = tail;             // and set the new tail
+    }
 
     /**
      * Returns:
@@ -1718,16 +2548,58 @@ class Throwable : Object
      */
     @system @nogc final pure nothrow ref uint refcount() return scope { return _refcount; }
 
-    @nogc @safe pure nothrow this(string msg, Throwable next = null)
+    /**
+     * Loop over the chain of Throwables.
+     */
+    int opApply(scope int delegate(Throwable) dg)
+    {
+        int result = 0;
+        for (Throwable t = this; t; t = t.nextInChain)
+        {
+            result = dg(t);
+            if (result)
+                break;
+        }
+        return result;
+    }
+
+    /**
+     * Append `e2` to chain of exceptions that starts with `e1`.
+     * Params:
+     *  e1 = start of chain (can be null)
+     *  e2 = second part of chain (can be null)
+     * Returns:
+     *  Throwable that is at the start of the chain; null if both `e1` and `e2` are null
+     */
+    static @__future @system @nogc pure nothrow Throwable chainTogether(return scope Throwable e1, return scope Throwable e2)
+    {
+        if (e2 && e2.refcount())
+            ++e2.refcount();
+        if (!e1)
+            return e2;
+        if (!e2)
+            return e1;
+        for (auto e = e1; 1; e = e.nextInChain)
+        {
+            if (!e.nextInChain)
+            {
+                e.nextInChain = e2;
+                break;
+            }
+        }
+        return e1;
+    }
+
+    @nogc @safe pure nothrow this(string msg, Throwable nextInChain = null)
     {
         this.msg = msg;
-        this.next = next;
+        this.nextInChain = nextInChain;
         //this.info = _d_traceContext();
     }
 
-    @nogc @safe pure nothrow this(string msg, string file, size_t line, Throwable next = null)
+    @nogc @safe pure nothrow this(string msg, string file, size_t line, Throwable nextInChain = null)
     {
-        this(msg, next);
+        this(msg, nextInChain);
         this.file = file;
         this.line = line;
         //this.info = _d_traceContext();
@@ -1735,8 +2607,8 @@ class Throwable : Object
 
     @trusted nothrow ~this()
     {
-        if (next && next._refcount)
-            _d_delThrowable(next);
+        if (nextInChain && nextInChain._refcount)
+            _d_delThrowable(nextInChain);
     }
 
     /**
@@ -1815,19 +2687,19 @@ class Exception : Throwable
 {
 
     /**
-     * Creates a new instance of Exception. The next parameter is used
+     * Creates a new instance of Exception. The nextInChain parameter is used
      * internally and should always be $(D null) when passed by user code.
      * This constructor does not automatically throw the newly-created
      * Exception; the $(D throw) statement should be used for that purpose.
      */
-    @nogc @safe pure nothrow this(string msg, string file = __FILE__, size_t line = __LINE__, Throwable next = null)
+    @nogc @safe pure nothrow this(string msg, string file = __FILE__, size_t line = __LINE__, Throwable nextInChain = null)
     {
-        super(msg, file, line, next);
+        super(msg, file, line, nextInChain);
     }
 
-    @nogc @safe pure nothrow this(string msg, Throwable next, string file = __FILE__, size_t line = __LINE__)
+    @nogc @safe pure nothrow this(string msg, Throwable nextInChain, string file = __FILE__, size_t line = __LINE__)
     {
-        super(msg, file, line, next);
+        super(msg, file, line, nextInChain);
     }
 }
 
@@ -1837,7 +2709,7 @@ unittest
         auto e = new Exception("msg");
         assert(e.file == __FILE__);
         assert(e.line == __LINE__ - 2);
-        assert(e.next is null);
+        assert(e.nextInChain is null);
         assert(e.msg == "msg");
     }
 
@@ -1845,7 +2717,7 @@ unittest
         auto e = new Exception("msg", new Exception("It's an Exception!"), "hello", 42);
         assert(e.file == "hello");
         assert(e.line == 42);
-        assert(e.next !is null);
+        assert(e.nextInChain !is null);
         assert(e.msg == "msg");
     }
 
@@ -1853,7 +2725,7 @@ unittest
         auto e = new Exception("msg", "hello", 42, new Exception("It's an Exception!"));
         assert(e.file == "hello");
         assert(e.line == 42);
-        assert(e.next !is null);
+        assert(e.nextInChain !is null);
         assert(e.msg == "msg");
     }
 
@@ -1876,20 +2748,20 @@ unittest
 class Error : Throwable
 {
     /**
-     * Creates a new instance of Error. The next parameter is used
+     * Creates a new instance of Error. The nextInChain parameter is used
      * internally and should always be $(D null) when passed by user code.
      * This constructor does not automatically throw the newly-created
      * Error; the $(D throw) statement should be used for that purpose.
      */
-    @nogc @safe pure nothrow this(string msg, Throwable next = null)
+    @nogc @safe pure nothrow this(string msg, Throwable nextInChain = null)
     {
-        super(msg, next);
+        super(msg, nextInChain);
         bypassedException = null;
     }
 
-    @nogc @safe pure nothrow this(string msg, string file, size_t line, Throwable next = null)
+    @nogc @safe pure nothrow this(string msg, string file, size_t line, Throwable nextInChain = null)
     {
-        super(msg, file, line, next);
+        super(msg, file, line, nextInChain);
         bypassedException = null;
     }
 
@@ -1904,7 +2776,7 @@ unittest
         auto e = new Error("msg");
         assert(e.file is null);
         assert(e.line == 0);
-        assert(e.next is null);
+        assert(e.nextInChain is null);
         assert(e.msg == "msg");
         assert(e.bypassedException is null);
     }
@@ -1913,7 +2785,7 @@ unittest
         auto e = new Error("msg", new Exception("It's an Exception!"));
         assert(e.file is null);
         assert(e.line == 0);
-        assert(e.next !is null);
+        assert(e.nextInChain !is null);
         assert(e.msg == "msg");
         assert(e.bypassedException is null);
     }
@@ -1922,7 +2794,7 @@ unittest
         auto e = new Error("msg", "hello", 42, new Exception("It's an Exception!"));
         assert(e.file == "hello");
         assert(e.line == 42);
-        assert(e.next !is null);
+        assert(e.nextInChain !is null);
         assert(e.msg == "msg");
         assert(e.bypassedException is null);
     }
@@ -2195,6 +3067,7 @@ unittest
 {
     static struct T
     {
+        byte b;
         static size_t count;
         this(this) { ++count; }
     }
@@ -2551,15 +3424,6 @@ unittest
     static assert(is(typeof(caa.byValue().front) == const int));
 }
 
-private void _destructRecurse(S)(ref S s)
-    if (is(S == struct))
-{
-    static if (__traits(hasMember, S, "__xdtor") &&
-               // Bugzilla 14746: Check that it's the exact member of S.
-               __traits(isSame, S, __traits(parent, s.__xdtor)))
-        s.__xdtor();
-}
-
 private void _destructRecurse(E, size_t n)(ref E[n] arr)
 {
     import core.internal.traits : hasElaborateDestructor;
@@ -2853,226 +3717,6 @@ unittest
     assert(postblitRecurseOrder == order);
 }
 
-/++
-    Destroys the given object and puts it in an invalid state. It's used to
-    _destroy an object so that any cleanup which its destructor or finalizer
-    does is done and so that it no longer references any other objects. It does
-    $(I not) initiate a GC cycle or free any GC memory.
-  +/
-void destroy(T)(T obj) if (is(T == class))
-{
-    rt_finalize(cast(void*)obj);
-}
-
-/// ditto
-void destroy(T)(T obj) if (is(T == interface))
-{
-    destroy(cast(Object)obj);
-}
-
-version(unittest) unittest
-{
-   interface I { }
-   {
-       class A: I { string s = "A"; this() {} }
-       auto a = new A, b = new A;
-       a.s = b.s = "asd";
-       destroy(a);
-       assert(a.s == "A");
-
-       I i = b;
-       destroy(i);
-       assert(b.s == "A");
-   }
-   {
-       static bool destroyed = false;
-       class B: I
-       {
-           string s = "B";
-           this() {}
-           ~this()
-           {
-               destroyed = true;
-           }
-       }
-       auto a = new B, b = new B;
-       a.s = b.s = "asd";
-       destroy(a);
-       assert(destroyed);
-       assert(a.s == "B");
-
-       destroyed = false;
-       I i = b;
-       destroy(i);
-       assert(destroyed);
-       assert(b.s == "B");
-   }
-   // this test is invalid now that the default ctor is not run after clearing
-   version(none)
-   {
-       class C
-       {
-           string s;
-           this()
-           {
-               s = "C";
-           }
-       }
-       auto a = new C;
-       a.s = "asd";
-       destroy(a);
-       assert(a.s == "C");
-   }
-}
-
-/// ditto
-void destroy(T)(ref T obj) if (is(T == struct))
-{
-    _destructRecurse(obj);
-    () @trusted {
-        auto buf = (cast(ubyte*) &obj)[0 .. T.sizeof];
-        auto init = cast(ubyte[])typeid(T).initializer();
-        if (init.ptr is null) // null ptr means initialize to 0s
-            buf[] = 0;
-        else
-            buf[] = init[];
-    } ();
-}
-
-version(unittest) nothrow @safe @nogc unittest
-{
-   {
-       struct A { string s = "A";  }
-       A a;
-       a.s = "asd";
-       destroy(a);
-       assert(a.s == "A");
-   }
-   {
-       static int destroyed = 0;
-       struct C
-       {
-           string s = "C";
-           ~this() nothrow @safe @nogc
-           {
-               destroyed ++;
-           }
-       }
-
-       struct B
-       {
-           C c;
-           string s = "B";
-           ~this() nothrow @safe @nogc
-           {
-               destroyed ++;
-           }
-       }
-       B a;
-       a.s = "asd";
-       a.c.s = "jkl";
-       destroy(a);
-       assert(destroyed == 2);
-       assert(a.s == "B");
-       assert(a.c.s == "C" );
-   }
-}
-
-/// ditto
-void destroy(T : U[n], U, size_t n)(ref T obj) if (!is(T == struct))
-{
-    foreach_reverse (ref e; obj[])
-        destroy(e);
-}
-
-version(unittest) unittest
-{
-    int[2] a;
-    a[0] = 1;
-    a[1] = 2;
-    destroy(a);
-    assert(a == [ 0, 0 ]);
-}
-
-unittest
-{
-    static struct vec2f {
-        float[2] values;
-        alias values this;
-    }
-
-    vec2f v;
-    destroy!vec2f(v);
-}
-
-unittest
-{
-    // Bugzilla 15009
-    static string op;
-    static struct S
-    {
-        int x;
-        this(int x) { op ~= "C" ~ cast(char)('0'+x); this.x = x; }
-        this(this)  { op ~= "P" ~ cast(char)('0'+x); }
-        ~this()     { op ~= "D" ~ cast(char)('0'+x); }
-    }
-
-    {
-        S[2] a1 = [S(1), S(2)];
-        op = "";
-    }
-    assert(op == "D2D1");   // built-in scope destruction
-    {
-        S[2] a1 = [S(1), S(2)];
-        op = "";
-        destroy(a1);
-        assert(op == "D2D1");   // consistent with built-in behavior
-    }
-
-    {
-        S[2][2] a2 = [[S(1), S(2)], [S(3), S(4)]];
-        op = "";
-    }
-    assert(op == "D4D3D2D1");
-    {
-        S[2][2] a2 = [[S(1), S(2)], [S(3), S(4)]];
-        op = "";
-        destroy(a2);
-        assert(op == "D4D3D2D1", op);
-    }
-}
-
-/// ditto
-void destroy(T)(ref T obj)
-    if (!is(T == struct) && !is(T == interface) && !is(T == class) && !_isStaticArray!T)
-{
-    obj = T.init;
-}
-
-template _isStaticArray(T : U[N], U, size_t N)
-{
-    enum bool _isStaticArray = true;
-}
-
-template _isStaticArray(T)
-{
-    enum bool _isStaticArray = false;
-}
-
-version(unittest) unittest
-{
-   {
-       int a = 42;
-       destroy(a);
-       assert(a == 0);
-   }
-   {
-       float a = 42;
-       destroy(a);
-       assert(isnan(a));
-   }
-}
-
 version (unittest)
 {
     private bool isnan(float x)
@@ -3084,7 +3728,7 @@ version (unittest)
 private
 {
     extern (C) void _d_arrayshrinkfit(const TypeInfo ti, void[] arr) nothrow;
-    extern (C) size_t _d_arraysetcapacity(const TypeInfo ti, size_t newcapacity, void *arrptr) pure nothrow;
+    extern (C) size_t _d_arraysetcapacity(const TypeInfo ti, size_t newcapacity, void[]* arrptr) pure nothrow;
 }
 
 /**
@@ -3100,7 +3744,7 @@ private
  */
 @property size_t capacity(T)(T[] arr) pure nothrow @trusted
 {
-    return _d_arraysetcapacity(typeid(T[]), 0, cast(void *)&arr);
+    return _d_arraysetcapacity(typeid(T[]), 0, cast(void[]*)&arr);
 }
 ///
 @safe unittest
@@ -3135,7 +3779,7 @@ private
  */
 size_t reserve(T)(ref T[] arr, size_t newcapacity) pure nothrow @trusted
 {
-    return _d_arraysetcapacity(typeid(T[]), newcapacity, cast(void *)&arr);
+    return _d_arraysetcapacity(typeid(T[]), newcapacity, cast(void[]*)&arr);
 }
 ///
 unittest
@@ -3281,56 +3925,46 @@ version (none)
     }
 }
 
-
-/***************************************
- * Helper function used to see if two containers of different
- * types have the same contents in the same sequence.
- */
-
-bool _ArrayEq(T1, T2)(T1[] a1, T2[] a2)
-{
-    if (a1.length != a2.length)
-        return false;
-
-    // This is function is used as a compiler intrinsic and explicitly written
-    // in a lowered flavor to use as few CTFE instructions as possible.
-    size_t idx = 0;
-    immutable length = a1.length;
-
-    for(;idx < length;++idx)
-    {
-        if (a1[idx] != a2[idx])
-            return false;
-    }
-    return true;
-}
-
 /**
 Calculates the hash value of $(D arg) with $(D seed) initial value.
 The result may not be equal to `typeid(T).getHash(&arg)`.
-The $(D seed) value may be used for hash chaining:
-----
-struct Test
-{
-    int a;
-    string b;
-    MyObject c;
 
-    size_t toHash() const @safe pure nothrow
-    {
-        size_t hash = a.hashOf();
-        hash = b.hashOf(hash);
-        size_t h1 = c.myMegaHash();
-        hash = h1.hashOf(hash); //Mix two hash values
-        return hash;
-    }
-}
-----
+Params:
+    arg = argument to calculate the hash value of
+    seed = the $(D seed) value (may be used for hash chaining)
+
+Return: calculated hash value of $(D arg)
 */
 size_t hashOf(T)(auto ref T arg, size_t seed = 0)
 {
     import core.internal.hash;
     return core.internal.hash.hashOf(arg, seed);
+}
+
+///
+@system unittest
+{
+    class MyObject
+    {
+        size_t myMegaHash() const @safe pure nothrow
+        {
+            return 42;
+        }
+    }
+    struct Test
+    {
+        int a;
+        string b;
+        MyObject c;
+        size_t toHash() const pure nothrow
+        {
+            size_t hash = a.hashOf();
+            hash = b.hashOf(hash);
+            size_t h1 = c.myMegaHash();
+            hash = h1.hashOf(hash); //Mix two hash values
+            return hash;
+        }
+    }
 }
 
 unittest
@@ -3362,450 +3996,6 @@ template RTInfo(T)
     enum RTInfo = null;
 }
 
-// lhs == rhs lowers to __equals(lhs, rhs) for dynamic arrays
-bool __equals(T1, T2)(T1[] lhs, T2[] rhs)
-{
-    import core.internal.traits : Unqual;
-    alias U1 = Unqual!T1;
-    alias U2 = Unqual!T2;
-
-    static @trusted ref R at(R)(R[] r, size_t i) { return r.ptr[i]; }
-    static @trusted R trustedCast(R, S)(S[] r) { return cast(R) r; }
-
-    if (lhs.length != rhs.length)
-        return false;
-
-    if (lhs.length == 0 && rhs.length == 0)
-        return true;
-
-    static if (is(U1 == void) && is(U2 == void))
-    {
-        return __equals(trustedCast!(ubyte[])(lhs), trustedCast!(ubyte[])(rhs));
-    }
-    else static if (is(U1 == void))
-    {
-        return __equals(trustedCast!(ubyte[])(lhs), rhs);
-    }
-    else static if (is(U2 == void))
-    {
-        return __equals(lhs, trustedCast!(ubyte[])(rhs));
-    }
-    else static if (!is(U1 == U2))
-    {
-        // This should replace src/object.d _ArrayEq which
-        // compares arrays of different types such as long & int,
-        // char & wchar.
-        // Compiler lowers to __ArrayEq in dmd/src/opover.d
-        foreach (const u; 0 .. lhs.length)
-        {
-            if (at(lhs, u) != at(rhs, u))
-                return false;
-        }
-        return true;
-    }
-    else static if (__traits(isIntegral, U1))
-    {
-
-        if (!__ctfe)
-        {
-            import core.stdc.string : memcmp;
-            return () @trusted { return memcmp(cast(void*)lhs.ptr, cast(void*)rhs.ptr, lhs.length * U1.sizeof) == 0; }();
-        }
-        else
-        {
-            foreach (const u; 0 .. lhs.length)
-            {
-                if (at(lhs, u) != at(rhs, u))
-                    return false;
-            }
-            return true;
-        }
-    }
-    else
-    {
-        foreach (const u; 0 .. lhs.length)
-        {
-            static if (__traits(compiles, __equals(at(lhs, u), at(rhs, u))))
-            {
-                if (!__equals(at(lhs, u), at(rhs, u)))
-                    return false;
-            }
-            else static if (__traits(isFloating, U1))
-            {
-                if (at(lhs, u) != at(rhs, u))
-                    return false;
-            }
-            else static if (is(U1 : Object) && is(U2 : Object))
-            {
-                if (!(cast(Object)at(lhs, u) is cast(Object)at(rhs, u)
-                    || at(lhs, u) && (cast(Object)at(lhs, u)).opEquals(cast(Object)at(rhs, u))))
-                    return false;
-            }
-            else static if (__traits(hasMember, U1, "opEquals"))
-            {
-                if (!at(lhs, u).opEquals(at(rhs, u)))
-                    return false;
-            }
-            else static if (is(U1 == delegate))
-            {
-                if (at(lhs, u) != at(rhs, u))
-                    return false;
-            }
-            else static if (is(U1 == U11*, U11))
-            {
-                if (at(lhs, u) != at(rhs, u))
-                    return false;
-            }
-            else static if (__traits(isAssociativeArray, U1))
-            {
-                if (at(lhs, u) != at(rhs, u))
-                    return false;
-            }
-            else
-            {
-                if (at(lhs, u).tupleof != at(rhs, u).tupleof)
-                    return false;
-            }
-        }
-
-        return true;
-    }
-}
-
-unittest {
-    assert(__equals([], []));
-    assert(!__equals([1, 2], [1, 2, 3]));
-}
-
-unittest
-{
-    struct A
-    {
-        int a;
-    }
-
-    auto arr1 = [A(0), A(2)];
-    auto arr2 = [A(0), A(1)];
-    auto arr3 = [A(0), A(1)];
-
-    assert(arr1 != arr2);
-    assert(arr2 == arr3);
-}
-
-unittest
-{
-    struct A
-    {
-        int a;
-        int b;
-
-        bool opEquals(const A other)
-        {
-            return this.a == other.b && this.b == other.a;
-        }
-    }
-
-    auto arr1 = [A(1, 0), A(0, 1)];
-    auto arr2 = [A(1, 0), A(0, 1)];
-    auto arr3 = [A(0, 1), A(1, 0)];
-
-    assert(arr1 != arr2);
-    assert(arr2 == arr3);
-}
-
-// https://issues.dlang.org/show_bug.cgi?id=18252
-unittest
-{
-    string[int][] a1, a2;
-    assert(__equals(a1, a2));
-    assert(a1 == a2);
-    a1 ~= [0: "zero"];
-    a2 ~= [0: "zero"];
-    assert(__equals(a1, a2));
-    assert(a1 == a2);
-    a2[0][1] = "one";
-    assert(!__equals(a1, a2));
-    assert(a1 != a2);
-}
-
-// Compare class and interface objects for ordering.
-private int __cmp(Obj)(Obj lhs, Obj rhs)
-if (is(Obj : Object))
-{
-    if (lhs is rhs)
-        return 0;
-    // Regard null references as always being "less than"
-    if (!lhs)
-        return -1;
-    if (!rhs)
-        return 1;
-    return lhs.opCmp(rhs);
-}
-
-int __cmp(T)(const T[] lhs, const T[] rhs) @trusted
-if (__traits(isScalar, T))
-{
-    // Compute U as the implementation type for T
-    static if (is(T == ubyte) || is(T == void) || is(T == bool))
-        alias U = char;
-    else static if (is(T == wchar))
-        alias U = ushort;
-    else static if (is(T == dchar))
-        alias U = uint;
-    else static if (is(T == ifloat))
-        alias U = float;
-    else static if (is(T == idouble))
-        alias U = double;
-    else static if (is(T == ireal))
-        alias U = real;
-    else
-        alias U = T;
-
-    static if (is(U == char))
-    {
-        import core.internal.string : dstrcmp;
-        return dstrcmp(cast(char[]) lhs, cast(char[]) rhs);
-    }
-    else static if (!is(U == T))
-    {
-        // Reuse another implementation
-        return __cmp(cast(U[]) lhs, cast(U[]) rhs);
-    }
-    else
-    {
-        immutable len = lhs.length <= rhs.length ? lhs.length : rhs.length;
-        foreach (const u; 0 .. len)
-        {
-            static if (__traits(isFloating, T))
-            {
-                immutable a = lhs.ptr[u], b = rhs.ptr[u];
-                static if (is(T == cfloat) || is(T == cdouble)
-                    || is(T == creal))
-                {
-                    // Use rt.cmath2._Ccmp instead ?
-                    auto r = (a.re > b.re) - (a.re < b.re);
-                    if (!r) r = (a.im > b.im) - (a.im < b.im);
-                }
-                else
-                {
-                    const r = (a > b) - (a < b);
-                }
-                if (r) return r;
-            }
-            else if (lhs.ptr[u] != rhs.ptr[u])
-                return lhs.ptr[u] < rhs.ptr[u] ? -1 : 1;
-        }
-        return lhs.length < rhs.length ? -1 : (lhs.length > rhs.length);
-    }
-}
-
-// This function is called by the compiler when dealing with array
-// comparisons in the semantic analysis phase of CmpExp. The ordering
-// comparison is lowered to a call to this template.
-int __cmp(T1, T2)(T1[] s1, T2[] s2)
-if (!__traits(isScalar, T1) && !__traits(isScalar, T2))
-{
-    import core.internal.traits : Unqual;
-    alias U1 = Unqual!T1;
-    alias U2 = Unqual!T2;
-
-    static if (is(U1 == void) && is(U2 == void))
-        static @trusted ref inout(ubyte) at(inout(void)[] r, size_t i) { return (cast(inout(ubyte)*) r.ptr)[i]; }
-    else
-        static @trusted ref R at(R)(R[] r, size_t i) { return r.ptr[i]; }
-
-    // All unsigned byte-wide types = > dstrcmp
-    immutable len = s1.length <= s2.length ? s1.length : s2.length;
-
-    foreach (const u; 0 .. len)
-    {
-        static if (__traits(compiles, __cmp(at(s1, u), at(s2, u))))
-        {
-            auto c = __cmp(at(s1, u), at(s2, u));
-            if (c != 0)
-                return c;
-        }
-        else static if (__traits(compiles, at(s1, u).opCmp(at(s2, u))))
-        {
-            auto c = at(s1, u).opCmp(at(s2, u));
-            if (c != 0)
-                return c;
-        }
-        else static if (__traits(compiles, at(s1, u) < at(s2, u)))
-        {
-            if (at(s1, u) != at(s2, u))
-                return at(s1, u) < at(s2, u) ? -1 : 1;
-        }
-        else
-        {
-            // TODO: fix this legacy bad behavior, see
-            // https://issues.dlang.org/show_bug.cgi?id=17244
-            static assert(is(U1 == U2), "Internal error.");
-            import core.stdc.string : memcmp;
-            auto c = (() @trusted => memcmp(&at(s1, u), &at(s2, u), U1.sizeof))();
-            if (c != 0)
-                return c;
-        }
-    }
-    return s1.length < s2.length ? -1 : (s1.length > s2.length);
-}
-
-// integral types
-@safe unittest
-{
-    void compareMinMax(T)()
-    {
-        T[2] a = [T.max, T.max];
-        T[2] b = [T.min, T.min];
-
-        assert(__cmp(a, b) > 0);
-        assert(__cmp(b, a) < 0);
-    }
-
-    compareMinMax!int;
-    compareMinMax!uint;
-    compareMinMax!long;
-    compareMinMax!ulong;
-    compareMinMax!short;
-    compareMinMax!ushort;
-    compareMinMax!byte;
-    compareMinMax!dchar;
-    compareMinMax!wchar;
-}
-
-// char types (dstrcmp)
-@safe unittest
-{
-    void compareMinMax(T)()
-    {
-        T[2] a = [T.max, T.max];
-        T[2] b = [T.min, T.min];
-
-        assert(__cmp(a, b) > 0);
-        assert(__cmp(b, a) < 0);
-    }
-
-    compareMinMax!ubyte;
-    compareMinMax!bool;
-    compareMinMax!char;
-    compareMinMax!(const char);
-
-    string s1 = "aaaa";
-    string s2 = "bbbb";
-    assert(__cmp(s2, s1) > 0);
-    assert(__cmp(s1, s2) < 0);
-}
-
-// fp types
-@safe unittest
-{
-    void compareMinMax(T)()
-    {
-        T[2] a = [T.max, T.max];
-        T[2] b = [T.min_normal, T.min_normal];
-        T[2] c = [T.max, T.min_normal];
-        T[1] d = [T.max];
-
-        assert(__cmp(a, b) > 0);
-        assert(__cmp(b, a) < 0);
-        assert(__cmp(a, c) > 0);
-        assert(__cmp(a, d) > 0);
-        assert(__cmp(d, c) < 0);
-        assert(__cmp(c, c) == 0);
-    }
-
-    compareMinMax!real;
-    compareMinMax!float;
-    compareMinMax!double;
-    compareMinMax!ireal;
-    compareMinMax!ifloat;
-    compareMinMax!idouble;
-    compareMinMax!creal;
-    //compareMinMax!cfloat;
-    compareMinMax!cdouble;
-
-    // qualifiers
-    compareMinMax!(const real);
-    compareMinMax!(immutable real);
-}
-
-// void[]
-@safe unittest
-{
-    void[] a;
-    const(void)[] b;
-
-    (() @trusted
-    {
-        a = cast(void[]) "bb";
-        b = cast(const(void)[]) "aa";
-    })();
-
-    assert(__cmp(a, b) > 0);
-    assert(__cmp(b, a) < 0);
-}
-
-// arrays of arrays with mixed modifiers
-@safe unittest
-{
-    // https://issues.dlang.org/show_bug.cgi?id=17876
-    bool less1(immutable size_t[][] a, size_t[][] b) { return a < b; }
-    bool less2(const void[][] a, void[][] b) { return a < b; }
-    bool less3(inout size_t[][] a, size_t[][] b) { return a < b; }
-
-    immutable size_t[][] a = [[1, 2], [3, 4]];
-    size_t[][] b = [[1, 2], [3, 5]];
-    assert(less1(a, b));
-    assert(less3(a, b));
-
-    auto va = [cast(immutable void[])a[0], a[1]];
-    auto vb = [cast(void[])b[0], b[1]];
-    assert(less2(va, vb));
-}
-
-// objects
-@safe unittest
-{
-    class C
-    {
-        int i;
-        this(int i) { this.i = i; }
-
-        override int opCmp(Object c) const @safe
-        {
-            return i - (cast(C)c).i;
-        }
-    }
-
-    auto c1 = new C(1);
-    auto c2 = new C(2);
-    assert(__cmp(c1, null) > 0);
-    assert(__cmp(null, c1) < 0);
-    assert(__cmp(c1, c1) == 0);
-    assert(__cmp(c1, c2) < 0);
-    assert(__cmp(c2, c1) > 0);
-
-    assert(__cmp([c1, c1][], [c2, c2][]) < 0);
-    assert(__cmp([c2, c2], [c1, c1]) > 0);
-}
-
-// structs
-@safe unittest
-{
-    struct C
-    {
-        ubyte i;
-        this(ubyte i) { this.i = i; }
-    }
-
-    auto c1 = C(1);
-    auto c2 = C(2);
-
-    assert(__cmp([c1, c1][], [c2, c2][]) < 0);
-    assert(__cmp([c2, c2], [c1, c1]) > 0);
-    assert(__cmp([c2, c2], [c2, c1]) > 0);
-}
-
 // Compiler hook into the runtime implementation of array (vector) operations.
 template _arrayOp(Args...)
 {
@@ -3820,45 +4010,45 @@ template _arrayOp(Args...)
                    strings are sorted by length first, and then lexicographically.
  *      condition = string to look up in table
  * Returns:
- *      index of match in caseLabels, -1 if not found
+ *      index of match in caseLabels, a negative integer if not found
 */
 int __switch(T, caseLabels...)(/*in*/ const scope T[] condition) pure nothrow @safe @nogc
 {
     // This closes recursion for other cases.
     static if (caseLabels.length == 0)
     {
-        return -1;
+        return int.min;
     }
     else static if (caseLabels.length == 1)
     {
-        return __cmp(condition, caseLabels[0]) == 0 ? 0 : -1;
+        return __cmp(condition, caseLabels[0]) == 0 ? 0 : int.min;
     }
     // To be adjusted after measurements
     // Compile-time inlined binary search.
     else static if (caseLabels.length < 7)
     {
         int r = void;
-        if (condition.length == caseLabels[$ / 2].length)
+        enum mid = cast(int)caseLabels.length / 2;
+        if (condition.length == caseLabels[mid].length)
         {
-            r = __cmp(condition, caseLabels[$ / 2]);
-            if (r == 0) return cast(int) caseLabels.length / 2;
+            r = __cmp(condition, caseLabels[mid]);
+            if (r == 0) return mid;
         }
         else
         {
             // Equivalent to (but faster than) condition.length > caseLabels[$ / 2].length ? 1 : -1
-            r = ((condition.length > caseLabels[$ / 2].length) << 1) - 1;
+            r = ((condition.length > caseLabels[mid].length) << 1) - 1;
         }
 
         if (r < 0)
         {
             // Search the left side
-            return __switch!(T, caseLabels[0 .. $ / 2])(condition);
+            return __switch!(T, caseLabels[0 .. mid])(condition);
         }
         else
         {
             // Search the right side
-            r = __switch!(T, caseLabels[$ / 2 + 1 .. $])(condition);
-            return r != -1 ? cast(int) (caseLabels.length / 2 + 1 + r) : -1;
+            return __switch!(T, caseLabels[mid + 1 .. $])(condition) + mid + 1;
         }
     }
     else
@@ -3963,6 +4153,19 @@ unittest
         assert(binarySearch("") == -1);
         assert(binarySearch("sth.") == -1);
         assert(binarySearch(null) == -1);
+
+        static int bug16739(immutable(T)[] s)
+        {
+            switch (s)
+            {
+                case "\u0100": return 1;
+                case "a": return 2;
+                default: return 3;
+            }
+        }
+        assert(bug16739("\u0100") == 1);
+        assert(bug16739("a") == 2);
+        assert(bug16739("foo") == 3);
     }
     testSwitch!char;
     testSwitch!wchar;
@@ -4028,7 +4231,7 @@ private size_t getArrayHash(in TypeInfo element, in void* ptr, in size_t count) 
 
     size_t hash = 0;
     foreach(size_t i; 0 .. count)
-        hash += element.getHash(ptr + i * elementSize);
+        hash = hash * 33 + element.getHash(ptr + i * elementSize);
     return hash;
 }
 
@@ -4332,6 +4535,33 @@ unittest
     }
 
     int p;
-    scope arr = [S(&p)];
+    scope S[1] arr = [S(&p)];
     auto a = arr.dup; // dup does escape
+}
+
+// compiler frontend lowers dynamic array comparison to this
+bool __ArrayEq(T1, T2)(T1[] a, T2[] b)
+{
+    if (a.length != b.length)
+        return false;
+    foreach (size_t i; 0 .. a.length)
+    {
+        if (a[i] != b[i])
+            return false;
+    }
+    return true;
+}
+
+// compiler frontend lowers struct array postblitting to this
+void __ArrayPostblit(T)(T[] a)
+{
+    foreach (ref T e; a)
+        e.__xpostblit();
+}
+
+// compiler frontend lowers dynamic array deconstruction to this
+void __ArrayDtor(T)(T[] a)
+{
+    foreach_reverse (ref T e; a)
+        e.__xdtor();
 }

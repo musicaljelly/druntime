@@ -2,7 +2,7 @@
 * parse configuration options
 *
 * Copyright: Copyright Digital Mars 2017
-* License:   $(WEB www.boost.org/LICENSE_1_0.txt, Boost License 1.0).
+* License:   $(HTTP www.boost.org/LICENSE_1_0.txt, Boost License 1.0).
 *
 * Source: $(DRUNTIMESRC src/core/internal/parseoptions.d)
 */
@@ -211,7 +211,7 @@ bool parse(const(char)[] optname, ref inout(char)[] str, ref inout(char)[] res, 
 in { assert(str.length); }
 do
 {
-    auto tail = str.find!(c => c == ':' || c == '=' || c == ' ');
+    auto tail = str.find!(c => c == ' ');
     res = str[0 .. $ - tail.length];
     if (!res.length)
         return parseError("an identifier", optname, str, errName);

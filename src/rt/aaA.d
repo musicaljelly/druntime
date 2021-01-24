@@ -2,7 +2,7 @@
  * Implementation of associative arrays.
  *
  * Copyright: Copyright Digital Mars 2000 - 2015.
- * License:   $(WEB www.boost.org/LICENSE_1_0.txt, Boost License 1.0).
+ * License:   $(HTTP www.boost.org/LICENSE_1_0.txt, Boost License 1.0).
  * Authors:   Martin Nowak
  */
 module rt.aaA;
@@ -663,8 +663,8 @@ extern (C) hash_t _aaGetHash(in AA* aa, in TypeInfo tiRaw) nothrow
         if (!b.filled)
             continue;
         size_t[2] h2 = [b.hash, valHash(b.entry + off)];
-        // use XOR here, so that hash is independent of element order
-        h ^= hashOf(h2);
+        // use addition here, so that hash is independent of element order
+        h += hashOf(h2);
     }
     return h;
 }

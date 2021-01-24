@@ -7,7 +7,7 @@
  *      $(LINK2 http://www.boost.org/LICENSE_1_0.txt, Boost Software License 1.0).
  *    (See accompanying file LICENSE)
  * Authors:   Walter Bright, Sean Kelly
- * Source: $(DRUNTIMESRC src/rt/deh_win64_posix.d)
+ * Source: $(DRUNTIMESRC rt/deh_win64_posix.d)
  */
 
 module rt.deh_win64_posix;
@@ -344,14 +344,8 @@ extern (C) void _d_throwc(Throwable h)
                 {
                     debug(PRINTF) printf("replacing thrown %p with inflight %p\n", h, __inflight.t);
 
-                    auto t = curr.t;
-                    auto n = curr.t;
-
-                    while (n.next)
-                        n = n.next;
-                    n.next = cast(Throwable) h;
+                    h = Throwable.chainTogether(curr.t, cast(Throwable) h);
                     prev.next = curr.next;
-                    h = t;
                 }
             }
         }

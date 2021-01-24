@@ -3,16 +3,20 @@
 MODEL=32
 
 DMD_DIR=..\dmd
-BUILD=release
 OS=windows
-DMD=$(DMD_DIR)\generated\$(OS)\$(BUILD)\$(MODEL)\dmd
+# !!!
+DMD=W:\external\DMD\windows\bin\dmd.exe
 
-CC=dmc
+CC=W:\external\DigitalMars\bin\dmc.exe
+# !!!
 
 DOCDIR=doc
 IMPDIR=import
 
-DFLAGS=-m$(MODEL) -conf= -O -release -dip1000 -inline -w -Isrc -Iimport
+# !!!
+# Removed release-specific flags, putting them below instead
+DFLAGS=-m$(MODEL) -conf= -dip1000 -w -Isrc -Iimport
+# !!!
 UDFLAGS=-m$(MODEL) -conf= -O -release -dip1000 -w -Isrc -Iimport
 DDOCFLAGS=-conf= -c -w -o- -Isrc -Iimport -version=CoreDdoc
 
@@ -207,6 +211,7 @@ copydir: $(IMPDIR)
 	mkdir $(IMPDIR)\core\internal
 	mkdir $(IMPDIR)\core\sys\darwin\mach
 	mkdir $(IMPDIR)\core\sys\freebsd\sys
+	mkdir $(IMPDIR)\core\sys\dragonflybsd\sys
 	mkdir $(IMPDIR)\core\sys\linux\sys
 	mkdir $(IMPDIR)\core\sys\osx\mach
 	mkdir $(IMPDIR)\core\sys\posix\arpa
@@ -340,6 +345,11 @@ $(IMPDIR)\core\stdc\stdio.d : src\core\stdc\stdio.d
 $(IMPDIR)\core\stdc\stdlib.d : src\core\stdc\stdlib.d
 	copy $** $@
 
+# !!!
+$(IMPDIR)\core\stdc\cstdlib_malloc.d : src\core\stdc\cstdlib_malloc.d
+	copy $** $@
+# !!!
+
 $(IMPDIR)\core\stdc\string.d : src\core\stdc\string.d
 	copy $** $@
 
@@ -443,6 +453,51 @@ $(IMPDIR)\core\sys\freebsd\sys\link_elf.d : src\core\sys\freebsd\sys\link_elf.d
 	copy $** $@
 
 $(IMPDIR)\core\sys\freebsd\sys\mman.d : src\core\sys\freebsd\sys\mman.d
+	copy $** $@
+
+$(IMPDIR)\core\sys\dragonflybsd\dlfcn.d : src\core\sys\dragonflybsd\dlfcn.d
+	copy $** $@
+
+$(IMPDIR)\core\sys\dragonflybsd\execinfo.d : src\core\sys\dragonflybsd\execinfo.d
+	copy $** $@
+
+$(IMPDIR)\core\sys\dragonflybsd\pthread_np.d : src\core\sys\dragonflybsd\pthread_np.d
+	copy $** $@
+
+$(IMPDIR)\core\sys\dragonflybsd\time.d : src\core\sys\dragonflybsd\time.d
+	copy $** $@
+
+$(IMPDIR)\core\sys\dragonflybsd\netinet\in_.d : src\core\sys\dragonflybsd\netinet\in_.d
+	copy $** $@
+
+$(IMPDIR)\core\sys\dragonflybsd\sys\cdefs.d : src\core\sys\dragonflybsd\sys\cdefs.d
+	copy $** $@
+
+$(IMPDIR)\core\sys\dragonflybsd\sys\_bitset.d : src\core\sys\dragonflybsd\sys\_bitset.d
+	copy $** $@
+
+$(IMPDIR)\core\sys\dragonflybsd\sys\_cpuset.d : src\core\sys\dragonflybsd\sys\_cpuset.d
+	copy $** $@
+
+$(IMPDIR)\core\sys\dragonflybsd\sys\elf.d : src\core\sys\dragonflybsd\sys\elf.d
+	copy $** $@
+
+$(IMPDIR)\core\sys\dragonflybsd\sys\elf_common.d : src\core\sys\dragonflybsd\sys\elf_common.d
+	copy $** $@
+
+$(IMPDIR)\core\sys\dragonflybsd\sys\elf32.d : src\core\sys\dragonflybsd\sys\elf32.d
+	copy $** $@
+
+$(IMPDIR)\core\sys\dragonflybsd\sys\elf64.d : src\core\sys\dragonflybsd\sys\elf64.d
+	copy $** $@
+
+$(IMPDIR)\core\sys\dragonflybsd\sys\event.d : src\core\sys\dragonflybsd\sys\event.d
+	copy $** $@
+
+$(IMPDIR)\core\sys\dragonflybsd\sys\link_elf.d : src\core\sys\dragonflybsd\sys\link_elf.d
+	copy $** $@
+
+$(IMPDIR)\core\sys\dragonflybsd\sys\mman.d : src\core\sys\dragonflybsd\sys\mman.d
 	copy $** $@
 
 $(IMPDIR)\core\sys\linux\config.d : src\core\sys\linux\config.d
@@ -569,6 +624,9 @@ $(IMPDIR)\core\sys\osx\sys\mman.d : src\core\sys\osx\sys\mman.d
 	copy $** $@
 
 $(IMPDIR)\core\sys\posix\arpa\inet.d : src\core\sys\posix\arpa\inet.d
+	copy $** $@
+
+$(IMPDIR)\core\sys\posix\aio.d : src\core\sys\posix\aio.d
 	copy $** $@
 
 $(IMPDIR)\core\sys\posix\config.d : src\core\sys\posix\config.d
@@ -1303,6 +1361,14 @@ rebuild_minit_obj : src\rt\minit.asm
 	$(CC) -c $(CFLAGS) src\rt\minit.asm
 
 ################### Library generation #########################
+
+# !!!
+release: $(OBJS) $(SRCS) win$(MODEL).mak
+        *$(DMD) -lib -of$(DRUNTIME) -Xfdruntime.json $(DFLAGS) -O -release -inline $(SRCS) $(OBJS)
+
+debug: $(OBJS) $(SRCS) win$(MODEL).mak
+        *$(DMD) -lib -of$(DRUNTIME) -Xfdruntime.json $(DFLAGS) -g -gs -debug=GameDebug $(SRCS) $(OBJS)
+# !!!
 
 $(DRUNTIME): $(OBJS) $(SRCS) win$(MODEL).mak
 	*$(DMD) -lib -of$(DRUNTIME) -Xfdruntime.json $(DFLAGS) $(SRCS) $(OBJS)
