@@ -29,6 +29,11 @@ DOCFMT=
 
 target : import copydir copy $(DRUNTIME)
 
+# !!!
+release : import copydir copy $(DRUNTIME)release
+debug : import copydir copy $(DRUNTIME)debug
+# !!!
+
 $(mak\COPY)
 $(mak\DOCS)
 $(mak\IMPORTS)
@@ -1363,11 +1368,11 @@ rebuild_minit_obj : src\rt\minit.asm
 ################### Library generation #########################
 
 # !!!
-release: $(OBJS) $(SRCS) win$(MODEL).mak
-        *$(DMD) -lib -of$(DRUNTIME) -Xfdruntime.json $(DFLAGS) -O -release -inline $(SRCS) $(OBJS)
+$(DRUNTIME)release: $(OBJS) $(SRCS) win$(MODEL).mak
+	*$(DMD) -lib -of$(DRUNTIME) -Xfdruntime.json $(DFLAGS) -O -release -inline $(SRCS) $(OBJS)
 
-debug: $(OBJS) $(SRCS) win$(MODEL).mak
-        *$(DMD) -lib -of$(DRUNTIME) -Xfdruntime.json $(DFLAGS) -g -gs -debug=GameDebug $(SRCS) $(OBJS)
+$(DRUNTIME)debug: $(OBJS) $(SRCS) win$(MODEL).mak
+	*$(DMD) -lib -of$(DRUNTIME) -Xfdruntime.json $(DFLAGS) -g -gs -debug=GameDebug $(SRCS) $(OBJS)
 # !!!
 
 $(DRUNTIME): $(OBJS) $(SRCS) win$(MODEL).mak
