@@ -60,14 +60,20 @@ import core.time;
 alias currTime = MonoTime.currTime;
 
 // !!!
-debug (GameDebug)
+// Function definition outside of the debug block so we have the same exports in debug and release
+// (lets us link a release phobos against a debug game, for example)
+alias GCLoggingFunc = void function(bool isCollection, size_t size = -1, Duration time = Duration.zero) nothrow;
+extern (C) void SetGCLoggingFunction(GCLoggingFunc loggingFunc)
 {
-    alias GCLoggingFunc = void function(bool isCollection, size_t size = -1, Duration time = Duration.zero) nothrow;
-    GCLoggingFunc g_loggingFunc = null;
-    extern (C) void SetGCLoggingFunction(GCLoggingFunc loggingFunc)
+    debug (GameDebug) 
     {
         g_loggingFunc = loggingFunc;
     }
+}
+
+debug (GameDebug)
+{
+    GCLoggingFunc g_loggingFunc = null;
 
     void GCLoggingHelper(bool isCollection, size_t size = -1, Duration time = Duration.zero) nothrow
     {

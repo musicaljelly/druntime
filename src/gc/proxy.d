@@ -32,13 +32,16 @@ private
     import core.internal.spinlock;
     static SpinLock instanceLock;
 
-// !!!
+    // !!!
     __gshared bool isInstanceInit = false;
     __gshared GC proxiedGC; // used to iterate roots of Windows DLLs
     __gshared GC proxiedScrapheap;
     // Stole the name "instance" to refer to the currently set instance. The actual GC instance here is now called "gcInstance"
     __gshared GC gcInstance = new ProtoGC();
     __gshared GC scrapheapInstance;
+
+    __gshared GC pendingGCProxy = null;
+    __gshared GC pendingScrapheapProxy = null;
 
     immutable int ALLOCATOR_STACK_SIZE = 128;
 
@@ -91,6 +94,14 @@ extern (C)
             // Transfer all ranges and roots to the real GC.
             (cast(ProtoGC) protoInstance).term();
             isInstanceInit = true;
+
+            // If we have a pending GC proxy to set, set it now
+            if (pendingGCProxy !is null && pendingScrapheapProxy !is null)
+            {
+                gc_setProxy(pendingGCProxy, pendingScrapheapProxy);
+                pendingGCProxy = null;
+                pendingScrapheapProxy = null;
+            }
         }
         instanceLock.unlock();
     }
@@ -272,21 +283,29 @@ extern (C)
         // !!!
         void gc_setProxy(GC gcProxyToSet, GC scrapheapProxyToSet)
         {
-            foreach(root; gcInstance.rootIter)
+            if (!isInstanceInit)
             {
-                gcProxyToSet.addRoot(root);
+                pendingGCProxy = gcProxyToSet;
+                pendingScrapheapProxy = scrapheapProxyToSet;
             }
-
-            foreach(range; gcInstance.rangeIter)
+            else
             {
-                gcProxyToSet.addRange(range.pbot, range.ptop - range.pbot, range.ti);
+                foreach(root; gcInstance.rootIter)
+                {
+                    gcProxyToSet.addRoot(root);
+                }
+
+                foreach(range; gcInstance.rangeIter)
+                {
+                    gcProxyToSet.addRange(range.pbot, range.ptop - range.pbot, range.ti);
+                }
+
+                proxiedGC = gcInstance; // remember initial GCs to later remove roots
+                proxiedScrapheap = scrapheapInstance;
+
+                gcInstance = gcProxyToSet;
+                scrapheapInstance = scrapheapProxyToSet;
             }
-
-            proxiedGC = gcInstance; // remember initial GCs to later remove roots
-            proxiedScrapheap = scrapheapInstance;
-
-            gcInstance = gcProxyToSet;
-            scrapheapInstance = scrapheapProxyToSet;
         }
         // !!!
 
