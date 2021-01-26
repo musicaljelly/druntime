@@ -171,6 +171,11 @@ $(IMPDIR)\core\stdc\stdio.d : src\core\stdc\stdio.d
 $(IMPDIR)\core\stdc\stdlib.d : src\core\stdc\stdlib.d
 	copy $** $@
 
+# !!!
+$(IMPDIR)\core\stdc\cstdlib_malloc.d : src\core\stdc\cstdlib_malloc.d
+	copy $** $@
+# !!!
+
 $(IMPDIR)\core\stdc\string.d : src\core\stdc\string.d
 	copy $** $@
 
