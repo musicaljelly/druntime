@@ -24,6 +24,7 @@ SRCS=\
 	src\core\internal\spinlock.d \
 	src\core\internal\string.d \
 	src\core\internal\traits.d \
+	src\core\internal\utf.d \
 	\
 	src\core\stdc\assert_.d \
 	src\core\stdc\complex.d \
@@ -47,6 +48,10 @@ SRCS=\
 	src\core\stdc\time.d \
 	src\core\stdc\wchar_.d \
 	\
+	src\core\stdcpp\array.d \
+	src\core\stdcpp\string_view.d \
+	src\core\stdcpp\xutility.d \
+	\
 	src\core\sync\barrier.d \
 	src\core\sync\condition.d \
 	src\core\sync\config.d \
@@ -55,6 +60,17 @@ SRCS=\
 	src\core\sync\rwmutex.d \
 	src\core\sync\semaphore.d \
 	\
+	src\core\sys\darwin\crt_externs.d \
+	src\core\sys\darwin\dlfcn.d \
+	src\core\sys\darwin\execinfo.d \
+	src\core\sys\darwin\pthread.d \
+	src\core\sys\darwin\mach\dyld.d \
+	src\core\sys\darwin\mach\getsect.d \
+	src\core\sys\darwin\mach\kern_return.d \
+	src\core\sys\darwin\mach\loader.d \
+	src\core\sys\darwin\mach\port.d \
+	src\core\sys\darwin\mach\semaphore.d \
+	src\core\sys\darwin\mach\thread_act.d \
 	src\core\sys\darwin\netinet\in_.d \
 	\
 	src\core\sys\freebsd\dlfcn.d \
@@ -70,7 +86,9 @@ SRCS=\
 	src\core\sys\freebsd\sys\event.d \
 	src\core\sys\freebsd\sys\link_elf.d \
 	src\core\sys\freebsd\sys\mman.d \
+	src\core\sys\freebsd\sys\mount.d \
 	src\core\sys\freebsd\time.d \
+	src\core\sys\freebsd\unistd.d \
 	\
 	src\core\sys\dragonflybsd\dlfcn.d \
 	src\core\sys\dragonflybsd\execinfo.d \
@@ -101,6 +119,7 @@ SRCS=\
 	\
 	src\core\sys\posix\dirent.d \
 	src\core\sys\posix\signal.d \
+	src\core\sys\posix\spawn.d \
 	src\core\sys\posix\netdb.d \
 	src\core\sys\posix\netinet\in_.d \
 	src\core\sys\posix\arpa\inet.d \
@@ -349,10 +368,8 @@ SRCS=\
 	src\rt\backtrace\macho.d \
 	\
 	src\rt\util\array.d \
-	src\rt\util\hash.d \
 	src\rt\util\random.d \
 	src\rt\util\typeinfo.d \
-	src\rt\util\utf.d \
 	src\rt\util\container\array.d \
 	src\rt\util\container\common.d \
 	src\rt\util\container\hashtab.d \

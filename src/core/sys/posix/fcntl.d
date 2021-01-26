@@ -28,6 +28,22 @@ else version (TVOS)
 else version (WatchOS)
     version = Darwin;
 
+version (ARM)     version = ARM_Any;
+version (AArch64) version = ARM_Any;
+version (HPPA)    version = HPPA_Any;
+version (MIPS32)  version = MIPS_Any;
+version (MIPS64)  version = MIPS_Any;
+version (PPC)     version = PPC_Any;
+version (PPC64)   version = PPC_Any;
+version (RISCV32) version = RISCV_Any;
+version (RISCV64) version = RISCV_Any;
+version (S390)    version = IBMZ_Any;
+version (SPARC)   version = SPARC_Any;
+version (SPARC64) version = SPARC_Any;
+version (SystemZ) version = IBMZ_Any;
+version (X86)     version = X86_Any;
+version (X86_64)  version = X86_Any;
+
 version (Posix):
 extern (C):
 
@@ -84,28 +100,28 @@ int creat(in char*, mode_t);
 int fcntl(int, int, ...);
 int open(in char*, int, ...);
 */
-version( CRuntime_Glibc )
+version (CRuntime_Glibc)
 {
     enum F_DUPFD        = 0;
     enum F_GETFD        = 1;
     enum F_SETFD        = 2;
     enum F_GETFL        = 3;
     enum F_SETFL        = 4;
-  version(X86_64)
+  version (X86_64)
   {
     static assert(off_t.sizeof == 8);
     enum F_GETLK        = 5;
     enum F_SETLK        = 6;
     enum F_SETLKW       = 7;
   }
-  else version(AArch64)
+  else version (AArch64)
   {
     enum F_GETLK        = 5;
     enum F_SETLK        = 6;
     enum F_SETLKW       = 7;
   }
   else
-  static if( __USE_FILE_OFFSET64 )
+  static if ( __USE_FILE_OFFSET64 )
   {
     enum F_GETLK        = 12;
     enum F_SETLK        = 13;
@@ -126,7 +142,7 @@ version( CRuntime_Glibc )
     enum F_UNLCK        = 2;
     enum F_WRLCK        = 1;
 
-    version (X86)
+    version (X86_Any)
     {
         enum O_CREAT        = 0x40;     // octal     0100
         enum O_EXCL         = 0x80;     // octal     0200
@@ -139,33 +155,20 @@ version( CRuntime_Glibc )
         enum O_DSYNC        = 0x1000;   // octal   010000
         enum O_RSYNC        = O_SYNC;
     }
-    else version (X86_64)
+    else version (HPPA_Any)
     {
-        enum O_CREAT        = 0x40;     // octal     0100
-        enum O_EXCL         = 0x80;     // octal     0200
-        enum O_NOCTTY       = 0x100;    // octal     0400
-        enum O_TRUNC        = 0x200;    // octal    01000
+        enum O_CREAT        = 0x00100;  // octal    04000
+        enum O_EXCL         = 0x00400;  // octal     0200
+        enum O_NOCTTY       = 0x20000;  // octal     0400
+        enum O_TRUNC        = 0x00200;  // octal    01000
 
-        enum O_APPEND       = 0x400;    // octal    02000
-        enum O_NONBLOCK     = 0x800;    // octal    04000
-        enum O_SYNC         = 0x101000; // octal 04010000
-        enum O_DSYNC        = 0x1000;   // octal   010000
-        enum O_RSYNC        = O_SYNC;
+        enum O_APPEND       = 0x00008;  // octal      010
+        enum O_NONBLOCK     = 0x10004;  // octal  0200004
+        enum O_SYNC         = 0x48000;  // octal 01100000
+        enum O_DSYNC        = 0x40000;  // octal 01000000
+        enum O_RSYNC        = 0x80000;  // octal 02000000
     }
-    else version (MIPS32)
-    {
-        enum O_CREAT        = 0x0100;
-        enum O_EXCL         = 0x0400;
-        enum O_NOCTTY       = 0x0800;
-        enum O_TRUNC        = 0x0200;
-
-        enum O_APPEND       = 0x0008;
-        enum O_DSYNC        = O_SYNC;
-        enum O_NONBLOCK     = 0x0080;
-        enum O_RSYNC        = O_SYNC;
-        enum O_SYNC         = 0x0010;
-    }
-    else version (MIPS64)
+    else version (MIPS_Any)
     {
         enum O_CREAT        = 0x0100;
         enum O_EXCL         = 0x0400;
@@ -178,7 +181,7 @@ version( CRuntime_Glibc )
         enum O_RSYNC        = O_SYNC;
         enum O_SYNC         = 0x4010;
     }
-    else version (PPC)
+    else version (PPC_Any)
     {
         enum O_CREAT        = 0x40;     // octal     0100
         enum O_EXCL         = 0x80;     // octal     0200
@@ -191,7 +194,7 @@ version( CRuntime_Glibc )
         enum O_DSYNC        = 0x1000;   // octal   010000
         enum O_RSYNC        = O_SYNC;
     }
-    else version (PPC64)
+    else version (ARM_Any)
     {
         enum O_CREAT        = 0x40;     // octal     0100
         enum O_EXCL         = 0x80;     // octal     0200
@@ -204,7 +207,7 @@ version( CRuntime_Glibc )
         enum O_DSYNC        = 0x1000;   // octal   010000
         enum O_RSYNC        = O_SYNC;
     }
-    else version (ARM)
+    else version (RISCV_Any)
     {
         enum O_CREAT        = 0x40;     // octal     0100
         enum O_EXCL         = 0x80;     // octal     0200
@@ -217,20 +220,7 @@ version( CRuntime_Glibc )
         enum O_DSYNC        = 0x1000;   // octal   010000
         enum O_RSYNC        = O_SYNC;
     }
-    else version (AArch64)
-    {
-        enum O_CREAT        = 0x40;     // octal     0100
-        enum O_EXCL         = 0x80;     // octal     0200
-        enum O_NOCTTY       = 0x100;    // octal     0400
-        enum O_TRUNC        = 0x200;    // octal    01000
-
-        enum O_APPEND       = 0x400;    // octal    02000
-        enum O_NONBLOCK     = 0x800;    // octal    04000
-        enum O_SYNC         = 0x101000; // octal 04010000
-        enum O_DSYNC        = 0x1000;   // octal   010000
-        enum O_RSYNC        = O_SYNC;
-    }
-    else version (SPARC64)
+    else version (SPARC_Any)
     {
         enum O_CREAT        = 0x200;
         enum O_EXCL         = 0x800;
@@ -243,7 +233,7 @@ version( CRuntime_Glibc )
         enum O_DSYNC        = 0x2000;
         enum O_RSYNC        = O_SYNC;
     }
-    else version (SystemZ)
+    else version (IBMZ_Any)
     {
         enum O_CREAT        = 0x40;     // octal     0100
         enum O_EXCL         = 0x80;     // octal     0200
@@ -273,7 +263,7 @@ version( CRuntime_Glibc )
         pid_t   l_pid;
     }
 
-    static if( __USE_FILE_OFFSET64 )
+    static if ( __USE_FILE_OFFSET64 )
     {
         int   creat64(in char*, mode_t);
         alias creat64 creat;
@@ -290,7 +280,7 @@ version( CRuntime_Glibc )
     enum AT_SYMLINK_NOFOLLOW = 0x100;
     enum AT_FDCWD = -100;
 }
-else version( Darwin )
+else version (Darwin)
 {
     enum F_DUPFD        = 0;
     enum F_GETFD        = 1;
@@ -337,7 +327,7 @@ else version( Darwin )
     int creat(in char*, mode_t);
     int open(in char*, int, ...);
 }
-else version( FreeBSD )
+else version (FreeBSD)
 {
     enum F_DUPFD        = 0;
     enum F_GETFD        = 1;
@@ -401,7 +391,7 @@ else version( FreeBSD )
     enum AT_SYMLINK_NOFOLLOW = 0x200;
     enum AT_FDCWD = -100;
 }
-else version( OpenBSD )
+else version (OpenBSD)
 {
     enum F_DUPFD        = 0;
     enum F_GETFD        = 1;
@@ -470,7 +460,7 @@ else version( OpenBSD )
     enum AT_SYMLINK_FOLLOW   = 0x04;
     enum AT_REMOVEDIR        = 0x08;
 }
-else version(NetBSD)
+else version (NetBSD)
 {
     enum F_DUPFD        = 0;
     enum F_GETFD        = 1;
@@ -523,7 +513,7 @@ else version(NetBSD)
     int creat(in char*, mode_t);
     int open(in char*, int, ...);
 }
-else version( DragonFlyBSD )
+else version (DragonFlyBSD)
 {
     enum O_RDONLY       = 0x0000;
     enum O_WRONLY       = 0x0001;
@@ -723,7 +713,7 @@ else version (Solaris)
         }
     }
 }
-else version( CRuntime_Bionic )
+else version (CRuntime_Bionic)
 {
     // All these except for the two functions open and creat really come from
     // the linux kernel and can probably be merged.
@@ -744,42 +734,21 @@ else version( CRuntime_Bionic )
     enum F_WRLCK        = 1;
     enum F_UNLCK        = 2;
 
-    version (X86)
-    {
-        enum O_CREAT        = 0x40;     // octal     0100
-        enum O_EXCL         = 0x80;     // octal     0200
-        enum O_NOCTTY       = 0x100;    // octal     0400
-        enum O_TRUNC        = 0x200;    // octal    01000
+    enum O_CREAT        = 0x40;     // octal     0100
+    enum O_EXCL         = 0x80;     // octal     0200
+    enum O_NOCTTY       = 0x100;    // octal     0400
+    enum O_TRUNC        = 0x200;    // octal    01000
 
-        enum O_APPEND       = 0x400;    // octal    02000
-        enum O_NONBLOCK     = 0x800;    // octal    04000
-        enum O_SYNC         = 0x1000;   // octal   010000
-    }
-    else version (ARM)
-    {
-        enum O_CREAT        = 0x40;     // octal     0100
-        enum O_EXCL         = 0x80;     // octal     0200
-        enum O_NOCTTY       = 0x100;    // octal     0400
-        enum O_TRUNC        = 0x200;    // octal    01000
+    enum O_APPEND       = 0x400;    // octal    02000
+    enum O_NONBLOCK     = 0x800;    // octal    04000
 
-        enum O_APPEND       = 0x400;    // octal    02000
-        enum O_NONBLOCK     = 0x800;    // octal    04000
-        enum O_SYNC         = 0x1000;   // octal   010000
-    }
-    else version (AArch64)
+    version (D_LP64)
     {
-        enum O_CREAT        = 0x40;     // octal     0100
-        enum O_EXCL         = 0x80;     // octal     0200
-        enum O_NOCTTY       = 0x100;    // octal     0400
-        enum O_TRUNC        = 0x200;    // octal    01000
-
-        enum O_APPEND       = 0x400;    // octal    02000
-        enum O_NONBLOCK     = 0x800;    // octal    04000
-        enum O_SYNC         = 0x101000; // octal 04010000
+        enum O_SYNC     = 0x101000; // octal 04010000
     }
     else
     {
-        static assert(false, "Architecture not supported.");
+        enum O_SYNC     = 0x1000;   // octal   010000
     }
 
     enum O_ACCMODE      = 0x3;
@@ -801,7 +770,7 @@ else version( CRuntime_Bionic )
 
     enum AT_FDCWD = -100;
 }
-else version( CRuntime_Musl )
+else version (CRuntime_Musl)
 {
     enum {
         O_CREAT         = 0x40,     // octal     0100
@@ -863,7 +832,7 @@ else version( CRuntime_Musl )
 
     enum AT_FDCWD = -100;
 }
-else version( CRuntime_UClibc )
+else version (CRuntime_UClibc)
 {
     enum F_DUPFD        = 0;
     enum F_GETFD        = 1;
@@ -871,7 +840,7 @@ else version( CRuntime_UClibc )
     enum F_GETFL        = 3;
     enum F_SETFL        = 4;
 
-    version(X86_64)
+    version (X86_64)
     {
         enum F_GETLK        = 5;
         enum F_SETLK        = 6;
@@ -966,7 +935,7 @@ else version( CRuntime_UClibc )
         pid_t   l_pid;
     }
 
-    static if( __USE_FILE_OFFSET64 )
+    static if ( __USE_FILE_OFFSET64 )
     {
         int   creat64(in char*, mode_t);
         alias creat64 creat;

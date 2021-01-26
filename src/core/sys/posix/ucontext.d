@@ -23,6 +23,9 @@ extern (C):
 nothrow:
 @nogc:
 
+version (RISCV32) version = RISCV_Any;
+version (RISCV64) version = RISCV_Any;
+
 //
 // XOpen (XSI)
 //
@@ -38,10 +41,10 @@ struct ucontext_t
 }
 */
 
-version( CRuntime_Glibc )
+version (CRuntime_Glibc)
 {
 
-    version( X86_64 )
+    version (X86_64)
     {
         enum
         {
@@ -123,7 +126,7 @@ version( CRuntime_Glibc )
             _libc_fpstate   __fpregs_mem;
         }
     }
-    else version( X86 )
+    else version (X86)
     {
         enum
         {
@@ -192,6 +195,48 @@ version( CRuntime_Glibc )
             mcontext_t      uc_mcontext;
             sigset_t        uc_sigmask;
             _libc_fpstate   __fpregs_mem;
+        }
+    }
+    else version (HPPA)
+    {
+        private
+        {
+            enum NGREG  = 80;
+            enum NFPREG = 32;
+
+            alias c_ulong greg_t;
+
+            struct gregset_t
+            {
+                greg_t[32] g_regs;
+                greg_t[8] sr_regs;
+                greg_t[24] cr_regs;
+                greg_t[16] g_pad;
+            }
+
+            struct fpregset_t
+            {
+                double[32] fpregs;
+            }
+        }
+
+        struct mcontext_t
+        {
+            greg_t sc_flags;
+            greg_t[32] sc_gr;
+            fpregset_t sc_fr;
+            greg_t[2] sc_iasq;
+            greg_t[2] sc_iaoq;
+            greg_t sc_sar;
+        }
+
+        struct ucontext_t
+        {
+            c_ulong uc_flags;
+            ucontext_t* uc_link;
+            stack_t uc_stack;
+            mcontext_t uc_mcontext;
+            sigset_t uc_sigmask;
         }
     }
     else version (MIPS32)
@@ -456,7 +501,7 @@ version( CRuntime_Glibc )
             mcontext_t  uc_mcontext;
         }
     }
-    else version(ARM)
+    else version (ARM)
     {
         enum
         {
@@ -539,6 +584,55 @@ version( CRuntime_Glibc )
             ucontext_t* uc_link;
             stack_t     uc_stack;
             sigset_t    uc_sigmask;
+            mcontext_t  uc_mcontext;
+        }
+    }
+    else version (RISCV_Any)
+    {
+        private
+        {
+            alias c_ulong[32] __riscv_mc_gp_state;
+
+            struct __riscv_mc_f_ext_state
+            {
+                uint[32] __f;
+                uint __fcsr;
+            }
+
+            struct __riscv_mc_d_ext_state
+            {
+                ulong[32] __f;
+                uint __fcsr;
+            }
+
+            struct __riscv_mc_q_ext_state
+            {
+                align(16) ulong[64] __f;
+                uint __fcsr;
+                uint[3] __reserved;
+            }
+
+            union __riscv_mc_fp_state
+            {
+                __riscv_mc_f_ext_state __f;
+                __riscv_mc_d_ext_state __d;
+                __riscv_mc_q_ext_state __q;
+            }
+        }
+
+        struct mcontext_t
+        {
+            __riscv_mc_gp_state __gregs;
+            __riscv_mc_fp_state __fpregs;
+        }
+
+        struct ucontext_t
+        {
+            c_ulong     __uc_flags;
+            ucontext_t* uc_link;
+            stack_t     uc_stack;
+            sigset_t    uc_sigmask;
+            char[1024 / 8 - sigset_t.sizeof] __reserved;
             mcontext_t  uc_mcontext;
         }
     }
@@ -670,10 +764,10 @@ version( CRuntime_Glibc )
     else
         static assert(0, "unimplemented");
 }
-else version( FreeBSD )
+else version (FreeBSD)
 {
     // <machine/ucontext.h>
-    version( X86_64 )
+    version (X86_64)
     {
       alias long __register_t;
       alias uint __uint32_t;
@@ -724,7 +818,7 @@ else version( FreeBSD )
        long[6]    mc_spare;
       }
     }
-    else version( X86 )
+    else version (X86)
     {
         alias int __register_t;
 
@@ -765,6 +859,38 @@ else version( FreeBSD )
             int[6]          mc_spare2;
         }
     }
+    else version (AArch64)
+    {
+        alias __register_t = long;
+
+        struct gpregs
+        {
+            __register_t[30] gp_x;
+            __register_t     gp_lr;
+            __register_t     gp_sp;
+            __register_t     gp_elr;
+            uint             gp_spsr;
+            int              gp_pad;
+        }
+
+        struct fpregs
+        {
+            ulong[2][32]    fp_q; // __uint128_t
+            uint            fp_sr;
+            uint            fp_cr;
+            int             fp_flags;
+            int             fp_pad;
+        }
+
+        struct mcontext_t
+        {
+            gpregs          mc_gpregs;
+            fpregs          mc_fpregs;
+            int             mc_flags;
+            int             mc_pad;
+            ulong[8]        mc_spare;
+        }
+    }
 
     // <ucontext.h>
     enum UCF_SWAPPED = 0x00000001;
@@ -780,10 +906,10 @@ else version( FreeBSD )
         int[4]          __spare__;
     }
 }
-else version(NetBSD)
+else version (NetBSD)
 {
 
-    version( X86_64 )
+    version (X86_64)
     {
       enum { NGREG = 26 };
       alias __greg_t = ulong;
@@ -796,7 +922,7 @@ else version(NetBSD)
         __fpregset_t    __fpregs;
       }
     }
-    else version( X86 )
+    else version (X86)
     {
       enum { NGREG = 19 };
       alias __greg_t = ulong;
@@ -836,10 +962,10 @@ else version(NetBSD)
 
     }
 }
-else version( DragonFlyBSD )
+else version (DragonFlyBSD)
 {
     // <machine/ucontext.h>
-    version( X86_64 )
+    version (X86_64)
     {
       alias long __register_t;
       alias uint __uint32_t;
@@ -901,24 +1027,105 @@ else version( DragonFlyBSD )
         int[4]          __spare__;
     }
 }
-else version ( Solaris )
+else version (Solaris)
 {
     alias uint[4] upad128_t;
 
-    version ( X86_64 )
+    version (SPARC64)
     {
-        enum _NGREG = 28;
+        enum _NGREG = 21;
         alias long greg_t;
     }
-    else version ( X86 )
+    else version (SPARC)
     {
         enum _NGREG = 19;
         alias int greg_t;
     }
+    else version (X86_64)
+    {
+        enum _NGREG = 28;
+        alias long greg_t;
+    }
+    else version (X86)
+    {
+        enum _NGREG = 19;
+        alias int greg_t;
+    }
+    else
+        static assert(0, "unimplemented");
 
     alias greg_t[_NGREG] gregset_t;
 
-    version ( X86_64 )
+    version (SPARC64)
+    {
+        private
+        {
+            struct _fpq
+            {
+                uint *fpq_addr;
+                uint fpq_instr;
+            }
+
+            struct fq
+            {
+                union
+                {
+                    double whole;
+                    _fpq fpq;
+                }
+            }
+        }
+
+        struct fpregset_t
+        {
+            union
+            {
+                uint[32]   fpu_regs;
+                double[32] fpu_dregs;
+                real[16]   fpu_qregs;
+            }
+            fq    *fpu_q;
+            ulong fpu_fsr;
+            ubyte fpu_qcnt;
+            ubyte fpu_q_entrysize;
+            ubyte fpu_en;
+        }
+    }
+    else version (SPARC)
+    {
+        private
+        {
+            struct _fpq
+            {
+                uint *fpq_addr;
+                uint fpq_instr;
+            }
+
+            struct fq
+            {
+                union
+                {
+                    double whole;
+                    _fpq fpq;
+                }
+            }
+        }
+
+        struct fpregset_t
+        {
+            union
+            {
+                uint[32]   fpu_regs;
+                double[16] fpu_dregs;
+            };
+            fq    *fpu_q;
+            uint  fpu_fsr;
+            ubyte fpu_qcnt;
+            ubyte fpu_q_entrysize;
+            ubyte fpu_en;
+        }
+    }
+    else version (X86_64)
     {
         union _u_st
         {
@@ -951,7 +1158,7 @@ else version ( Solaris )
             }
         }
     }
-    else version ( X86 )
+    else version (X86)
     {
         struct fpregset_t
         {
@@ -979,6 +1186,9 @@ else version ( Solaris )
         u_fp_reg_set fp_reg_set;
         }
     }
+    else
+        static assert(0, "unimplemented");
+
     struct mcontext_t
     {
         gregset_t   gregs;
@@ -995,9 +1205,9 @@ else version ( Solaris )
         c_long[5]   uc_filler;
     }
 }
-else version( CRuntime_UClibc )
+else version (CRuntime_UClibc)
 {
-    version( X86_64 )
+    version (X86_64)
     {
         enum
         {
@@ -1037,7 +1247,7 @@ else version( CRuntime_UClibc )
             sigset_t        uc_sigmask;
         }
     }
-    else version(MIPS32)
+    else version (MIPS32)
     {
         alias greg_t    = ulong;
         enum NGREG      = 32;
@@ -1113,7 +1323,7 @@ else version( CRuntime_UClibc )
             sigset_t uc_sigmask;
         }
     }
-    else version(ARM)
+    else version (ARM)
     {
         enum
         {
@@ -1186,7 +1396,7 @@ int  setcontext(in ucontext_t*);
 int  swapcontext(ucontext_t*, in ucontext_t*);
 */
 
-static if( is( ucontext_t ) )
+static if ( is( ucontext_t ) )
 {
     int  getcontext(ucontext_t*);
     void makecontext(ucontext_t*, void function(), int, ...);

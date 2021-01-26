@@ -10,14 +10,14 @@
 
 module core.atomic;
 
-version( D_InlineAsm_X86 )
+version (D_InlineAsm_X86)
 {
     version = AsmX86;
     version = AsmX86_32;
     enum has64BitCAS = true;
     enum has128BitCAS = false;
 }
-else version( D_InlineAsm_X86_64 )
+else version (D_InlineAsm_X86_64)
 {
     version = AsmX86;
     version = AsmX86_64;
@@ -147,7 +147,7 @@ private
 }
 
 
-version( AsmX86 )
+version (AsmX86)
 {
     // NOTE: Strictly speaking, the x86 supports atomic operations on
     //       unaligned values.  However, this is far slower than the
@@ -161,7 +161,7 @@ version( AsmX86 )
     {
         // NOTE: 32 bit x86 systems support 8 byte CAS, which only requires
         //       4 byte alignment, so use size_t as the align type here.
-        static if( T.sizeof > size_t.sizeof )
+        static if ( T.sizeof > size_t.sizeof )
             return cast(size_t)ptr % size_t.sizeof == 0;
         else
             return cast(size_t)ptr % T.sizeof == 0;
@@ -169,7 +169,7 @@ version( AsmX86 )
 }
 
 
-version( CoreDdoc )
+version (CoreDdoc)
 {
     /**
      * Performs the binary operation 'op' on val using 'mod' as the modifier.
@@ -182,7 +182,7 @@ version( CoreDdoc )
      *  The result of the operation.
      */
     TailShared!T atomicOp(string op, T, V1)( ref shared T val, V1 mod ) pure nothrow @nogc @safe
-        if( __traits( compiles, mixin( "*cast(T*)&val" ~ op ~ "mod" ) ) )
+        if ( __traits( compiles, mixin( "*cast(T*)&val" ~ op ~ "mod" ) ) )
     {
         return TailShared!T.init;
     }
@@ -202,15 +202,15 @@ version( CoreDdoc )
      *  true if the store occurred, false if not.
      */
     bool cas(T,V1,V2)( shared(T)* here, const V1 ifThis, V2 writeThis ) pure nothrow @nogc @safe
-        if( !is(T == class) && !is(T U : U*) && __traits( compiles, { *here = writeThis; } ) );
+        if ( !is(T == class) && !is(T U : U*) && __traits( compiles, { *here = writeThis; } ) );
 
     /// Ditto
     bool cas(T,V1,V2)( shared(T)* here, const shared(V1) ifThis, shared(V2) writeThis ) pure nothrow @nogc @safe
-        if( is(T == class) && __traits( compiles, { *here = writeThis; } ) );
+        if ( is(T == class) && __traits( compiles, { *here = writeThis; } ) );
 
     /// Ditto
     bool cas(T,V1,V2)( shared(T)* here, const shared(V1)* ifThis, shared(V2)* writeThis ) pure nothrow @nogc @safe
-        if( is(T U : U*) && __traits( compiles, { *here = writeThis; } ) );
+        if ( is(T U : U*) && __traits( compiles, { *here = writeThis; } ) );
 
     /**
      * Loads 'val' from memory and returns it.  The memory barrier specified
@@ -241,7 +241,7 @@ version( CoreDdoc )
      *  newval = The value to store.
      */
     void atomicStore(MemoryOrder ms = MemoryOrder.seq,T,V1)( ref shared T val, V1 newval ) pure nothrow @nogc @safe
-        if( __traits( compiles, { val = newval; } ) )
+        if ( __traits( compiles, { val = newval; } ) )
     {
 
     }
@@ -249,13 +249,36 @@ version( CoreDdoc )
 
     /**
      * Specifies the memory ordering semantics of an atomic operation.
+     *
+     * See_Also:
+     *     $(HTTP en.cppreference.com/w/cpp/atomic/memory_order)
      */
     enum MemoryOrder
     {
-        raw,    /// Not sequenced.
-        acq,    /// Hoist-load + hoist-store barrier.
-        rel,    /// Sink-load + sink-store barrier.
-        seq,    /// Fully sequenced (acquire + release).
+        /++
+        Not sequenced.
+        Corresponds to $(LINK2 https://llvm.org/docs/Atomics.html#monotonic, LLVM AtomicOrdering.Monotonic)
+        and C++11/C11 `memory_order_relaxed`.
+        +/
+        raw,
+        /++
+        Hoist-load + hoist-store barrier.
+        Corresponds to $(LINK2 https://llvm.org/docs/Atomics.html#acquire, LLVM AtomicOrdering.Acquire)
+        and C++11/C11 `memory_order_acquire`.
+        +/
+        acq,
+        /++
+        Sink-load + sink-store barrier.
+        Corresponds to $(LINK2 https://llvm.org/docs/Atomics.html#release, LLVM AtomicOrdering.Release)
+        and C++11/C11 `memory_order_release`.
+        +/
+        rel,
+        /++
+        Fully sequenced (acquire + release). Corresponds to
+        $(LINK2 https://llvm.org/docs/Atomics.html#sequentiallyconsistent, LLVM AtomicOrdering.SequentiallyConsistent)
+        and C++11/C11 `memory_order_seq_cst`.
+        +/
+        seq,
     }
 
     deprecated("Please use MemoryOrder instead.")
@@ -268,11 +291,11 @@ version( CoreDdoc )
      */
     void atomicFence() nothrow @nogc;
 }
-else version( AsmX86_32 )
+else version (AsmX86_32)
 {
     // Uses specialized asm for fast fetch and add operations
     private TailShared!(T) atomicFetchAdd(T)( ref shared T val, size_t mod ) pure nothrow @nogc @safe
-        if( T.sizeof <= 4 )
+        if ( T.sizeof <= 4 )
     {
         size_t tmp = mod;
         asm pure nothrow @nogc @trusted
@@ -293,13 +316,13 @@ else version( AsmX86_32 )
     }
 
     private TailShared!(T) atomicFetchSub(T)( ref shared T val, size_t mod ) pure nothrow @nogc @safe
-        if( T.sizeof <= 4)
+        if ( T.sizeof <= 4)
     {
         return atomicFetchAdd(val, -mod);
     }
 
     TailShared!T atomicOp(string op, T, V1)( ref shared T val, V1 mod ) pure nothrow @nogc
-        if( __traits( compiles, mixin( "*cast(T*)&val" ~ op ~ "mod" ) ) )
+        if ( __traits( compiles, mixin( "*cast(T*)&val" ~ op ~ "mod" ) ) )
     in
     {
         assert(atomicValueIsProperlyAligned(val));
@@ -311,12 +334,12 @@ else version( AsmX86_32 )
         // +    -   *   /   %   ^^  &
         // |    ^   <<  >>  >>> ~   in
         // ==   !=  <   <=  >   >=
-        static if( op == "+"  || op == "-"  || op == "*"  || op == "/"   ||
+        static if (op == "+"  || op == "-"  || op == "*"  || op == "/"   ||
                    op == "%"  || op == "^^" || op == "&"  || op == "|"   ||
                    op == "^"  || op == "<<" || op == ">>" || op == ">>>" ||
                    op == "~"  || // skip "in"
                    op == "==" || op == "!=" || op == "<"  || op == "<="  ||
-                   op == ">"  || op == ">=" )
+                   op == ">"  || op == ">=")
         {
             TailShared!T get = atomicLoad!(MemoryOrder.raw)( val );
             mixin( "return get " ~ op ~ " mod;" );
@@ -326,15 +349,15 @@ else version( AsmX86_32 )
         //
         // +=   -=  *=  /=  %=  ^^= &=
         // |=   ^=  <<= >>= >>>=    ~=
-        static if( op == "+=" && __traits(isIntegral, T) && T.sizeof <= 4 && V1.sizeof <= 4)
+        static if ( op == "+=" && __traits(isIntegral, T) && T.sizeof <= 4 && V1.sizeof <= 4)
         {
             return cast(T)(atomicFetchAdd!(T)(val, mod) + mod);
         }
-        else static if( op == "-=" && __traits(isIntegral, T) && T.sizeof <= 4 && V1.sizeof <= 4)
+        else static if ( op == "-=" && __traits(isIntegral, T) && T.sizeof <= 4 && V1.sizeof <= 4)
         {
             return cast(T)(atomicFetchSub!(T)(val, mod) - mod);
         }
-        else static if( op == "+=" || op == "-="  || op == "*="  || op == "/=" ||
+        else static if ( op == "+=" || op == "-="  || op == "*="  || op == "/=" ||
                    op == "%=" || op == "^^=" || op == "&="  || op == "|=" ||
                    op == "^=" || op == "<<=" || op == ">>=" || op == ">>>=" ) // skip "~="
         {
@@ -344,7 +367,7 @@ else version( AsmX86_32 )
             {
                 get = set = atomicLoad!(MemoryOrder.raw)( val );
                 mixin( "set " ~ op ~ " mod;" );
-            } while( !casByRef( val, get, set ) );
+            } while ( !casByRef( val, get, set ) );
             return set;
         }
         else
@@ -359,19 +382,19 @@ else version( AsmX86_32 )
     }
 
     bool cas(T,V1,V2)( shared(T)* here, const V1 ifThis, V2 writeThis ) pure nothrow @nogc @safe
-        if( !is(T == class) && !is(T U : U*) && __traits( compiles, { *here = writeThis; } ) )
+        if ( !is(T == class) && !is(T U : U*) && __traits( compiles, { *here = writeThis; } ) )
     {
         return casImpl(here, ifThis, writeThis);
     }
 
     bool cas(T,V1,V2)( shared(T)* here, const shared(V1) ifThis, shared(V2) writeThis ) pure nothrow @nogc @safe
-        if( is(T == class) && __traits( compiles, { *here = writeThis; } ) )
+        if ( is(T == class) && __traits( compiles, { *here = writeThis; } ) )
     {
         return casImpl(here, ifThis, writeThis);
     }
 
     bool cas(T,V1,V2)( shared(T)* here, const shared(V1)* ifThis, shared(V2)* writeThis ) pure nothrow @nogc @safe
-        if( is(T U : U*) && __traits( compiles, { *here = writeThis; } ) )
+        if ( is(T U : U*) && __traits( compiles, { *here = writeThis; } ) )
     {
         return casImpl(here, ifThis, writeThis);
     }
@@ -383,7 +406,7 @@ else version( AsmX86_32 )
     }
     do
     {
-        static if( T.sizeof == byte.sizeof )
+        static if ( T.sizeof == byte.sizeof )
         {
             //////////////////////////////////////////////////////////////////
             // 1 Byte CAS
@@ -399,7 +422,7 @@ else version( AsmX86_32 )
                 setz AL;
             }
         }
-        else static if( T.sizeof == short.sizeof )
+        else static if ( T.sizeof == short.sizeof )
         {
             //////////////////////////////////////////////////////////////////
             // 2 Byte CAS
@@ -415,7 +438,7 @@ else version( AsmX86_32 )
                 setz AL;
             }
         }
-        else static if( T.sizeof == int.sizeof )
+        else static if ( T.sizeof == int.sizeof )
         {
             //////////////////////////////////////////////////////////////////
             // 4 Byte CAS
@@ -431,7 +454,7 @@ else version( AsmX86_32 )
                 setz AL;
             }
         }
-        else static if( T.sizeof == long.sizeof && has64BitCAS )
+        else static if ( T.sizeof == long.sizeof && has64BitCAS )
         {
 
             //////////////////////////////////////////////////////////////////
@@ -497,18 +520,18 @@ else version( AsmX86_32 )
 
 
     TailShared!T atomicLoad(MemoryOrder ms = MemoryOrder.seq, T)( ref const shared T val ) pure nothrow @nogc @safe
-    if(!__traits(isFloating, T))
+    if (!__traits(isFloating, T))
     {
         static assert( ms != MemoryOrder.rel, "invalid MemoryOrder for atomicLoad()" );
         static assert( __traits(isPOD, T), "argument to atomicLoad() must be POD" );
 
-        static if( T.sizeof == byte.sizeof )
+        static if ( T.sizeof == byte.sizeof )
         {
             //////////////////////////////////////////////////////////////////
             // 1 Byte Load
             //////////////////////////////////////////////////////////////////
 
-            static if( needsLoadBarrier!(ms) )
+            static if ( needsLoadBarrier!(ms) )
             {
                 asm pure nothrow @nogc @trusted
                 {
@@ -528,13 +551,13 @@ else version( AsmX86_32 )
                 }
             }
         }
-        else static if( T.sizeof == short.sizeof )
+        else static if ( T.sizeof == short.sizeof )
         {
             //////////////////////////////////////////////////////////////////
             // 2 Byte Load
             //////////////////////////////////////////////////////////////////
 
-            static if( needsLoadBarrier!(ms) )
+            static if ( needsLoadBarrier!(ms) )
             {
                 asm pure nothrow @nogc @trusted
                 {
@@ -554,13 +577,13 @@ else version( AsmX86_32 )
                 }
             }
         }
-        else static if( T.sizeof == int.sizeof )
+        else static if ( T.sizeof == int.sizeof )
         {
             //////////////////////////////////////////////////////////////////
             // 4 Byte Load
             //////////////////////////////////////////////////////////////////
 
-            static if( needsLoadBarrier!(ms) )
+            static if ( needsLoadBarrier!(ms) )
             {
                 asm pure nothrow @nogc @trusted
                 {
@@ -580,7 +603,7 @@ else version( AsmX86_32 )
                 }
             }
         }
-        else static if( T.sizeof == long.sizeof && has64BitCAS )
+        else static if ( T.sizeof == long.sizeof && has64BitCAS )
         {
             //////////////////////////////////////////////////////////////////
             // 8 Byte Load on a 32-Bit Processor
@@ -608,18 +631,18 @@ else version( AsmX86_32 )
     }
 
     void atomicStore(MemoryOrder ms = MemoryOrder.seq, T, V1)( ref shared T val, V1 newval ) pure nothrow @nogc @safe
-        if( __traits( compiles, { val = newval; } ) )
+        if ( __traits( compiles, { val = newval; } ) )
     {
         static assert( ms != MemoryOrder.acq, "invalid MemoryOrder for atomicStore()" );
         static assert( __traits(isPOD, T), "argument to atomicStore() must be POD" );
 
-        static if( T.sizeof == byte.sizeof )
+        static if ( T.sizeof == byte.sizeof )
         {
             //////////////////////////////////////////////////////////////////
             // 1 Byte Store
             //////////////////////////////////////////////////////////////////
 
-            static if( needsStoreBarrier!(ms) )
+            static if ( needsStoreBarrier!(ms) )
             {
                 asm pure nothrow @nogc @trusted
                 {
@@ -639,13 +662,13 @@ else version( AsmX86_32 )
                 }
             }
         }
-        else static if( T.sizeof == short.sizeof )
+        else static if ( T.sizeof == short.sizeof )
         {
             //////////////////////////////////////////////////////////////////
             // 2 Byte Store
             //////////////////////////////////////////////////////////////////
 
-            static if( needsStoreBarrier!(ms) )
+            static if ( needsStoreBarrier!(ms) )
             {
                 asm pure nothrow @nogc @trusted
                 {
@@ -665,13 +688,13 @@ else version( AsmX86_32 )
                 }
             }
         }
-        else static if( T.sizeof == int.sizeof )
+        else static if ( T.sizeof == int.sizeof )
         {
             //////////////////////////////////////////////////////////////////
             // 4 Byte Store
             //////////////////////////////////////////////////////////////////
 
-            static if( needsStoreBarrier!(ms) )
+            static if ( needsStoreBarrier!(ms) )
             {
                 asm pure nothrow @nogc @trusted
                 {
@@ -691,7 +714,7 @@ else version( AsmX86_32 )
                 }
             }
         }
-        else static if( T.sizeof == long.sizeof && has64BitCAS )
+        else static if ( T.sizeof == long.sizeof && has64BitCAS )
         {
             //////////////////////////////////////////////////////////////////
             // 8 Byte Store on a 32-Bit Processor
@@ -756,11 +779,11 @@ else version( AsmX86_32 )
         }
     }
 }
-else version( AsmX86_64 )
+else version (AsmX86_64)
 {
     // Uses specialized asm for fast fetch and add operations
     private TailShared!(T) atomicFetchAdd(T)( ref shared T val, size_t mod ) pure nothrow @nogc @trusted
-        if( __traits(isIntegral, T) )
+        if ( __traits(isIntegral, T) )
     in
     {
         assert( atomicValueIsProperlyAligned(val));
@@ -787,13 +810,13 @@ else version( AsmX86_64 )
     }
 
     private TailShared!(T) atomicFetchSub(T)( ref shared T val, size_t mod ) pure nothrow @nogc @safe
-        if( __traits(isIntegral, T) )
+        if ( __traits(isIntegral, T) )
     {
         return atomicFetchAdd(val, -mod);
     }
 
     TailShared!T atomicOp(string op, T, V1)( ref shared T val, V1 mod ) pure nothrow @nogc
-        if( __traits( compiles, mixin( "*cast(T*)&val" ~ op ~ "mod" ) ) )
+        if ( __traits( compiles, mixin( "*cast(T*)&val" ~ op ~ "mod" ) ) )
     in
     {
         assert( atomicValueIsProperlyAligned(val));
@@ -805,7 +828,7 @@ else version( AsmX86_64 )
         // +    -   *   /   %   ^^  &
         // |    ^   <<  >>  >>> ~   in
         // ==   !=  <   <=  >   >=
-        static if( op == "+"  || op == "-"  || op == "*"  || op == "/"   ||
+        static if ( op == "+"  || op == "-"  || op == "*"  || op == "/"   ||
                    op == "%"  || op == "^^" || op == "&"  || op == "|"   ||
                    op == "^"  || op == "<<" || op == ">>" || op == ">>>" ||
                    op == "~"  || // skip "in"
@@ -820,15 +843,15 @@ else version( AsmX86_64 )
         //
         // +=   -=  *=  /=  %=  ^^= &=
         // |=   ^=  <<= >>= >>>=    ~=
-        static if( op == "+=" && __traits(isIntegral, T) && __traits(isIntegral, V1))
+        static if ( op == "+=" && __traits(isIntegral, T) && __traits(isIntegral, V1))
         {
             return cast(T)(atomicFetchAdd!(T)(val, mod) + mod);
         }
-        else static if( op == "-=" && __traits(isIntegral, T) && __traits(isIntegral, V1))
+        else static if ( op == "-=" && __traits(isIntegral, T) && __traits(isIntegral, V1))
         {
             return cast(T)(atomicFetchSub!(T)(val, mod) - mod);
         }
-        else static if( op == "+=" || op == "-="  || op == "*="  || op == "/=" ||
+        else static if ( op == "+=" || op == "-="  || op == "*="  || op == "/=" ||
                    op == "%=" || op == "^^=" || op == "&="  || op == "|=" ||
                    op == "^=" || op == "<<=" || op == ">>=" || op == ">>>=" ) // skip "~="
         {
@@ -838,7 +861,7 @@ else version( AsmX86_64 )
             {
                 get = set = atomicLoad!(MemoryOrder.raw)( val );
                 mixin( "set " ~ op ~ " mod;" );
-            } while( !casByRef( val, get, set ) );
+            } while ( !casByRef( val, get, set ) );
             return set;
         }
         else
@@ -854,19 +877,19 @@ else version( AsmX86_64 )
     }
 
     bool cas(T,V1,V2)( shared(T)* here, const V1 ifThis, V2 writeThis ) pure nothrow @nogc @safe
-        if( !is(T == class) && !is(T U : U*) &&  __traits( compiles, { *here = writeThis; } ) )
+        if ( !is(T == class) && !is(T U : U*) &&  __traits( compiles, { *here = writeThis; } ) )
     {
         return casImpl(here, ifThis, writeThis);
     }
 
     bool cas(T,V1,V2)( shared(T)* here, const shared(V1) ifThis, shared(V2) writeThis ) pure nothrow @nogc @safe
-        if( is(T == class) && __traits( compiles, { *here = writeThis; } ) )
+        if ( is(T == class) && __traits( compiles, { *here = writeThis; } ) )
     {
         return casImpl(here, ifThis, writeThis);
     }
 
     bool cas(T,V1,V2)( shared(T)* here, const shared(V1)* ifThis, shared(V2)* writeThis ) pure nothrow @nogc @safe
-        if( is(T U : U*) && __traits( compiles, { *here = writeThis; } ) )
+        if ( is(T U : U*) && __traits( compiles, { *here = writeThis; } ) )
     {
         return casImpl(here, ifThis, writeThis);
     }
@@ -878,7 +901,7 @@ else version( AsmX86_64 )
     }
     do
     {
-        static if( T.sizeof == byte.sizeof )
+        static if ( T.sizeof == byte.sizeof )
         {
             //////////////////////////////////////////////////////////////////
             // 1 Byte CAS
@@ -894,7 +917,7 @@ else version( AsmX86_64 )
                 setz AL;
             }
         }
-        else static if( T.sizeof == short.sizeof )
+        else static if ( T.sizeof == short.sizeof )
         {
             //////////////////////////////////////////////////////////////////
             // 2 Byte CAS
@@ -910,7 +933,7 @@ else version( AsmX86_64 )
                 setz AL;
             }
         }
-        else static if( T.sizeof == int.sizeof )
+        else static if ( T.sizeof == int.sizeof )
         {
             //////////////////////////////////////////////////////////////////
             // 4 Byte CAS
@@ -926,7 +949,7 @@ else version( AsmX86_64 )
                 setz AL;
             }
         }
-        else static if( T.sizeof == long.sizeof )
+        else static if ( T.sizeof == long.sizeof )
         {
             //////////////////////////////////////////////////////////////////
             // 8 Byte CAS on a 64-Bit Processor
@@ -942,12 +965,12 @@ else version( AsmX86_64 )
                 setz AL;
             }
         }
-        else static if( T.sizeof == long.sizeof*2 && has128BitCAS)
+        else static if ( T.sizeof == long.sizeof*2 && has128BitCAS)
         {
             //////////////////////////////////////////////////////////////////
             // 16 Byte CAS on a 64-Bit Processor
             //////////////////////////////////////////////////////////////////
-            version(Win64){
+            version (Win64){
                 //Windows 64 calling convention uses different registers.
                 //DMD appears to reverse the register order.
                 asm pure nothrow @nogc @trusted
@@ -1034,18 +1057,18 @@ else version( AsmX86_64 )
 
 
     TailShared!T atomicLoad(MemoryOrder ms = MemoryOrder.seq, T)( ref const shared T val ) pure nothrow @nogc @safe
-    if(!__traits(isFloating, T))
+    if (!__traits(isFloating, T))
     {
         static assert( ms != MemoryOrder.rel, "invalid MemoryOrder for atomicLoad()" );
         static assert( __traits(isPOD, T), "argument to atomicLoad() must be POD" );
 
-        static if( T.sizeof == byte.sizeof )
+        static if ( T.sizeof == byte.sizeof )
         {
             //////////////////////////////////////////////////////////////////
             // 1 Byte Load
             //////////////////////////////////////////////////////////////////
 
-            static if( needsLoadBarrier!(ms) )
+            static if ( needsLoadBarrier!(ms) )
             {
                 asm pure nothrow @nogc @trusted
                 {
@@ -1065,13 +1088,13 @@ else version( AsmX86_64 )
                 }
             }
         }
-        else static if( T.sizeof == short.sizeof )
+        else static if ( T.sizeof == short.sizeof )
         {
             //////////////////////////////////////////////////////////////////
             // 2 Byte Load
             //////////////////////////////////////////////////////////////////
 
-            static if( needsLoadBarrier!(ms) )
+            static if ( needsLoadBarrier!(ms) )
             {
                 asm pure nothrow @nogc @trusted
                 {
@@ -1091,13 +1114,13 @@ else version( AsmX86_64 )
                 }
             }
         }
-        else static if( T.sizeof == int.sizeof )
+        else static if ( T.sizeof == int.sizeof )
         {
             //////////////////////////////////////////////////////////////////
             // 4 Byte Load
             //////////////////////////////////////////////////////////////////
 
-            static if( needsLoadBarrier!(ms) )
+            static if ( needsLoadBarrier!(ms) )
             {
                 asm pure nothrow @nogc @trusted
                 {
@@ -1117,13 +1140,13 @@ else version( AsmX86_64 )
                 }
             }
         }
-        else static if( T.sizeof == long.sizeof )
+        else static if ( T.sizeof == long.sizeof )
         {
             //////////////////////////////////////////////////////////////////
             // 8 Byte Load
             //////////////////////////////////////////////////////////////////
 
-            static if( needsLoadBarrier!(ms) )
+            static if ( needsLoadBarrier!(ms) )
             {
                 asm pure nothrow @nogc @trusted
                 {
@@ -1143,12 +1166,12 @@ else version( AsmX86_64 )
                 }
             }
         }
-        else static if( T.sizeof == long.sizeof*2 && has128BitCAS )
+        else static if ( T.sizeof == long.sizeof*2 && has128BitCAS )
         {
             //////////////////////////////////////////////////////////////////
             // 16 Byte Load on a 64-Bit Processor
             //////////////////////////////////////////////////////////////////
-            version(Win64){
+            version (Win64){
                 size_t[2] retVal;
                 asm pure nothrow @nogc @trusted
                 {
@@ -1207,18 +1230,18 @@ else version( AsmX86_64 )
 
 
     void atomicStore(MemoryOrder ms = MemoryOrder.seq, T, V1)( ref shared T val, V1 newval ) pure nothrow @nogc @safe
-        if( __traits( compiles, { val = newval; } ) )
+        if ( __traits( compiles, { val = newval; } ) )
     {
         static assert( ms != MemoryOrder.acq, "invalid MemoryOrder for atomicStore()" );
         static assert( __traits(isPOD, T), "argument to atomicStore() must be POD" );
 
-        static if( T.sizeof == byte.sizeof )
+        static if ( T.sizeof == byte.sizeof )
         {
             //////////////////////////////////////////////////////////////////
             // 1 Byte Store
             //////////////////////////////////////////////////////////////////
 
-            static if( needsStoreBarrier!(ms) )
+            static if ( needsStoreBarrier!(ms) )
             {
                 asm pure nothrow @nogc @trusted
                 {
@@ -1238,13 +1261,13 @@ else version( AsmX86_64 )
                 }
             }
         }
-        else static if( T.sizeof == short.sizeof )
+        else static if ( T.sizeof == short.sizeof )
         {
             //////////////////////////////////////////////////////////////////
             // 2 Byte Store
             //////////////////////////////////////////////////////////////////
 
-            static if( needsStoreBarrier!(ms) )
+            static if ( needsStoreBarrier!(ms) )
             {
                 asm pure nothrow @nogc @trusted
                 {
@@ -1264,13 +1287,13 @@ else version( AsmX86_64 )
                 }
             }
         }
-        else static if( T.sizeof == int.sizeof )
+        else static if ( T.sizeof == int.sizeof )
         {
             //////////////////////////////////////////////////////////////////
             // 4 Byte Store
             //////////////////////////////////////////////////////////////////
 
-            static if( needsStoreBarrier!(ms) )
+            static if ( needsStoreBarrier!(ms) )
             {
                 asm pure nothrow @nogc @trusted
                 {
@@ -1290,13 +1313,13 @@ else version( AsmX86_64 )
                 }
             }
         }
-        else static if( T.sizeof == long.sizeof && has64BitCAS )
+        else static if ( T.sizeof == long.sizeof && has64BitCAS )
         {
             //////////////////////////////////////////////////////////////////
             // 8 Byte Store on a 64-Bit Processor
             //////////////////////////////////////////////////////////////////
 
-            static if( needsStoreBarrier!(ms) )
+            static if ( needsStoreBarrier!(ms) )
             {
                 asm pure nothrow @nogc @trusted
                 {
@@ -1316,12 +1339,12 @@ else version( AsmX86_64 )
                 }
             }
         }
-        else static if( T.sizeof == long.sizeof*2 && has128BitCAS )
+        else static if ( T.sizeof == long.sizeof*2 && has128BitCAS )
         {
             //////////////////////////////////////////////////////////////////
             // 16 Byte Store on a 64-Bit Processor
             //////////////////////////////////////////////////////////////////
-            version(Win64){
+            version (Win64){
                 asm pure nothrow @nogc @trusted
                 {
                     push RDI;
@@ -1387,16 +1410,16 @@ else version( AsmX86_64 )
 // them back.  This is necessary so that they get returned in floating
 // point instead of integer registers.
 TailShared!T atomicLoad(MemoryOrder ms = MemoryOrder.seq, T)( ref const shared T val ) pure nothrow @nogc @trusted
-if(__traits(isFloating, T))
+if (__traits(isFloating, T))
 {
-    static if(T.sizeof == int.sizeof)
+    static if (T.sizeof == int.sizeof)
     {
         static assert(is(T : float));
         auto ptr = cast(const shared int*) &val;
         auto asInt = atomicLoad!(ms)(*ptr);
         return *(cast(typeof(return)*) &asInt);
     }
-    else static if(T.sizeof == long.sizeof)
+    else static if (T.sizeof == long.sizeof)
     {
         static assert(is(T : double));
         auto ptr = cast(const shared long*) &val;
@@ -1414,7 +1437,7 @@ if(__traits(isFloating, T))
 ////////////////////////////////////////////////////////////////////////////////
 
 
-version( unittest )
+version (unittest)
 {
     void testCAS(T)( T val ) pure nothrow @nogc @trusted
     in
@@ -1477,7 +1500,7 @@ version( unittest )
 
         testType!(float)(1.0f);
 
-        static if( has64BitCAS )
+        static if ( has64BitCAS )
         {
             testType!(double)(1.0);
             testType!(long)();
@@ -1496,7 +1519,7 @@ version( unittest )
         atomicOp!"+="( f, 1 );
         assert( f == 1 );
 
-        static if( has64BitCAS )
+        static if ( has64BitCAS )
         {
             shared double d = 0;
             atomicOp!"+="( d, 1 );
@@ -1518,7 +1541,7 @@ version( unittest )
             atomicStore(a, DoubleValue(1,2));
             assert(a.value1 == 1 && a.value2 ==2);
 
-            while(!cas(&a, DoubleValue(1,2), DoubleValue(3,4))){}
+            while (!cas(&a, DoubleValue(1,2), DoubleValue(3,4))){}
             assert(a.value1 == 3 && a.value2 ==4);
 
             align(16) DoubleValue b = atomicLoad(a);
@@ -1622,7 +1645,7 @@ version( unittest )
         assert(atomicOp!"+="(i8, 8) == 13);
         assert(atomicOp!"+="(i16, 8) == 14);
         assert(atomicOp!"+="(i32, 8) == 15);
-        version( AsmX86_64 )
+        version (AsmX86_64)
         {
             shared ulong u64 = 4;
             shared long i64 = 8;
@@ -1646,7 +1669,7 @@ version( unittest )
         assert(atomicOp!"-="(i8, 1) == 4);
         assert(atomicOp!"-="(i16, 1) == 5);
         assert(atomicOp!"-="(i32, 1) == 6);
-        version( AsmX86_64 )
+        version (AsmX86_64)
         {
             shared ulong u64 = 4;
             shared long i64 = 8;

@@ -71,9 +71,9 @@ struct DbgHelp
 
     static DbgHelp* get()
     {
-        if( sm_hndl != sm_hndl.init )
+        if ( sm_hndl != sm_hndl.init )
             return &sm_inst;
-        if( (sm_hndl = LoadLibraryA( "dbghelp.dll" )) != sm_hndl.init )
+        if ( (sm_hndl = LoadLibraryA( "dbghelp.dll" )) != sm_hndl.init )
         {
             sm_inst.SymInitialize            = cast(SymInitializeFunc) GetProcAddress(sm_hndl,"SymInitialize");
             sm_inst.SymCleanup               = cast(SymCleanupFunc) GetProcAddress(sm_hndl,"SymCleanup");
@@ -106,7 +106,7 @@ struct DbgHelp
 
     shared static ~this()
     {
-        if( sm_hndl != sm_hndl.init )
+        if ( sm_hndl != sm_hndl.init )
             FreeLibrary( sm_hndl );
     }
 

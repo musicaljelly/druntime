@@ -28,17 +28,28 @@ extern (C):
 nothrow:
 @nogc:
 
-version (PPC)
-    version = PPC_Any;
-else version (PPC64)
-    version = PPC_Any;
+version (ARM)     version = ARM_Any;
+version (AArch64) version = ARM_Any;
+version (HPPA)    version = HPPA_Any;
+version (MIPS32)  version = MIPS_Any;
+version (MIPS64)  version = MIPS_Any;
+version (PPC)     version = PPC_Any;
+version (PPC64)   version = PPC_Any;
+version (RISCV32) version = RISCV_Any;
+version (RISCV64) version = RISCV_Any;
+version (S390)    version = IBMZ_Any;
+version (SPARC)   version = SPARC_Any;
+version (SPARC64) version = SPARC_Any;
+version (SystemZ) version = IBMZ_Any;
+version (X86)     version = X86_Any;
+version (X86_64)  version = X86_Any;
 
-version( MinGW )
+version (MinGW)
     version = GNUFP;
-version( CRuntime_Glibc )
+version (CRuntime_Glibc)
     version = GNUFP;
 
-version( GNUFP )
+version (GNUFP)
 {
     // https://sourceware.org/git/?p=glibc.git;a=blob;f=sysdeps/x86/fpu/bits/fenv.h
     version (X86)
@@ -83,18 +94,19 @@ version( GNUFP )
 
         alias fexcept_t = ushort;
     }
-    // https://sourceware.org/git/?p=glibc.git;a=blob;f=sysdeps/mips/bits/fenv.h
-    else version (MIPS32)
+    // https://sourceware.org/git/?p=glibc.git;a=blob;f=sysdeps/hppa/bits/fenv.h
+    else version (HPPA_Any)
     {
         struct fenv_t
         {
-            uint   __fp_control_register;
+            uint    __status_word;
+            uint[7] __exception;
         }
 
-        alias fexcept_t = ushort;
+        alias fexcept_t = uint;
     }
     // https://sourceware.org/git/?p=glibc.git;a=blob;f=sysdeps/mips/bits/fenv.h
-    else version (MIPS64)
+    else version (MIPS_Any)
     {
         struct fenv_t
         {
@@ -130,6 +142,12 @@ version( GNUFP )
         alias fenv_t = double;
         alias fexcept_t = uint;
     }
+    // https://sourceware.org/git/?p=glibc.git;a=blob;f=sysdeps/riscv/bits/fenv.h
+    else version (RISCV_Any)
+    {
+        alias fenv_t = uint;
+        alias fexcept_t = uint;
+    }
     // https://sourceware.org/git/?p=glibc.git;a=blob;f=sysdeps/sparc/fpu/bits/fenv.h
     else version (SPARC64)
     {
@@ -137,7 +155,7 @@ version( GNUFP )
         alias fexcept_t = ulong;
     }
     // https://sourceware.org/git/?p=glibc.git;a=blob;f=sysdeps/s390/fpu/bits/fenv.h
-    else version (SystemZ)
+    else version (IBMZ_Any)
     {
         struct fenv_t
         {
@@ -152,7 +170,7 @@ version( GNUFP )
         static assert(0, "Unimplemented architecture");
     }
 }
-else version( CRuntime_DigitalMars )
+else version (CRuntime_DigitalMars)
 {
     struct fenv_t
     {
@@ -163,7 +181,7 @@ else version( CRuntime_DigitalMars )
     }
     alias fexcept_t = int;
 }
-else version( CRuntime_Microsoft )
+else version (CRuntime_Microsoft)
 {
     struct fenv_t
     {
@@ -173,14 +191,14 @@ else version( CRuntime_Microsoft )
 
     alias fexcept_t = uint;
 }
-else version ( Darwin )
+else version (Darwin)
 {
-    version ( BigEndian )
+    version (BigEndian)
     {
         alias uint fenv_t;
         alias uint fexcept_t;
     }
-    version ( LittleEndian )
+    version (LittleEndian)
     {
         struct fenv_t
         {
@@ -193,7 +211,7 @@ else version ( Darwin )
         alias ushort fexcept_t;
     }
 }
-else version ( FreeBSD )
+else version (FreeBSD)
 {
     struct fenv_t
     {
@@ -207,9 +225,9 @@ else version ( FreeBSD )
 
     alias ushort fexcept_t;
 }
-else version ( NetBSD )
+else version (NetBSD)
 {
-    version(X86_64)
+    version (X86_64)
     {
         struct fenv_t
         {
@@ -225,7 +243,7 @@ else version ( NetBSD )
             uint mxcsr;                 /* Control and status register */
         }
    }
-   version(X86)
+   version (X86)
    {
         struct fenv_t
         {
@@ -247,7 +265,7 @@ else version ( NetBSD )
 
     alias uint fexcept_t;
 }
-else version ( OpenBSD )
+else version (OpenBSD)
 {
     struct fenv_t
     {
@@ -263,7 +281,7 @@ else version ( OpenBSD )
 
     alias fexcept_t = uint;
 }
-else version ( DragonFlyBSD )
+else version (DragonFlyBSD)
 {
     struct fenv_t
     {
@@ -281,9 +299,9 @@ else version ( DragonFlyBSD )
 
     alias uint fexcept_t;
 }
-else version( CRuntime_Bionic )
+else version (CRuntime_Bionic)
 {
-    version(X86)
+    version (X86)
     {
         struct fenv_t
         {
@@ -297,12 +315,12 @@ else version( CRuntime_Bionic )
 
         alias ushort fexcept_t;
     }
-    else version(ARM)
+    else version (ARM)
     {
         alias uint fenv_t;
         alias uint fexcept_t;
     }
-    else version(AArch64)
+    else version (AArch64)
     {
         struct fenv_t
         {
@@ -312,12 +330,30 @@ else version( CRuntime_Bionic )
 
         alias uint fexcept_t;
     }
+    else version (X86_64)
+    {
+        struct fenv_t
+        {
+            struct _x87
+            {
+                uint    __control;
+                uint    __status;
+                uint    __tag;
+                uint[4] __others;
+            }
+            _x87 __x87;
+
+            uint __mxcsr;
+        }
+
+        alias uint fexcept_t;
+    }
     else
     {
         static assert(false, "Architecture not supported.");
     }
 }
-else version( Solaris )
+else version (Solaris)
 {
     import core.stdc.config : c_ulong;
 
@@ -337,7 +373,7 @@ else version( Solaris )
 
     alias int fexcept_t;
 }
-else version( CRuntime_Musl )
+else version (CRuntime_Musl)
 {
     version (X86_64)
     {
@@ -364,7 +400,7 @@ else version( CRuntime_Musl )
         static assert(false, "Architecture not supported.");
     }
 }
-else version( CRuntime_UClibc )
+else version (CRuntime_UClibc)
 {
     version (X86)
     {
@@ -435,7 +471,7 @@ else
     static assert( false, "Unsupported platform" );
 }
 
-version( CRuntime_Microsoft )
+version (CRuntime_Microsoft)
 {
     enum
     {
@@ -449,6 +485,54 @@ version( CRuntime_Microsoft )
         FE_UPWARD       = 0x100, ///
         FE_DOWNWARD     = 0x200, ///
         FE_TOWARDZERO   = 0x300, ///
+    }
+}
+else version (Solaris)
+{
+    version (SPARC_Any)
+    {
+        enum
+        {
+            FE_TONEAREST    = 0,
+            FE_TOWARDZERO   = 1,
+            FE_UPWARD       = 2,
+            FE_DOWNWARD     = 3,
+        }
+
+        enum
+        {
+            FE_INEXACT      = 0x01,
+            FE_DIVBYZERO    = 0x02,
+            FE_UNDERFLOW    = 0x04,
+            FE_OVERFLOW     = 0x08,
+            FE_INVALID      = 0x10,
+            FE_ALL_EXCEPT   = 0x1f,
+        }
+
+    }
+    else version (X86_Any)
+    {
+        enum
+        {
+            FE_TONEAREST    = 0,
+            FE_DOWNWARD     = 1,
+            FE_UPWARD       = 2,
+            FE_TOWARDZERO   = 3,
+        }
+
+        enum
+        {
+            FE_INVALID      = 0x01,
+            FE_DIVBYZERO    = 0x04,
+            FE_OVERFLOW     = 0x08,
+            FE_UNDERFLOW    = 0x10,
+            FE_INEXACT      = 0x20,
+            FE_ALL_EXCEPT   = 0x3d,
+        }
+    }
+    else
+    {
+        static assert(0, "Unimplemented architecture");
     }
 }
 else
@@ -499,7 +583,7 @@ else
             FE_TOWARDZERO   = 0xC00, ///
         }
     }
-    else version (ARM)
+    else version (ARM_Any)
     {
         // Define bits representing exceptions in the FPU status word.
         enum
@@ -521,137 +605,105 @@ else
             FE_TOWARDZERO   = 0xC00000, ///
         }
     }
-    else version (AArch64)
+    else version (HPPA_Any)
+    {
+        // Define bits representing the exception.
+        enum
+        {
+            FE_INEXACT      = 0x01, ///
+            FE_UNDERFLOW    = 0x02, ///
+            FE_OVERFLOW     = 0x04, ///
+            FE_DIVBYZERO    = 0x08, ///
+            FE_INVALID      = 0x10, ///
+            FE_ALL_EXCEPT   = 0x1F, ///
+        }
+
+        // The HPPA FPU supports all of the four defined rounding modes.
+        enum
+        {
+            FE_TONEAREST    =   0x0, ///
+            FE_TOWARDZERO   = 0x200, ///
+            FE_UPWARD       = 0x400, ///
+            FE_DOWNWARD     = 0x600, ///
+        }
+    }
+    else version (MIPS_Any)
+    {
+        // Define bits representing the exception.
+        enum
+        {
+            FE_INEXACT      = 0x04, ///
+            FE_UNDERFLOW    = 0x08, ///
+            FE_OVERFLOW     = 0x10, ///
+            FE_DIVBYZERO    = 0x20, ///
+            FE_INVALID      = 0x40, ///
+            FE_ALL_EXCEPT   = 0x7C, ///
+        }
+
+        // The MIPS FPU supports all of the four defined rounding modes.
+        enum
+        {
+            FE_TONEAREST    = 0x0, ///
+            FE_TOWARDZERO   = 0x1, ///
+            FE_UPWARD       = 0x2, ///
+            FE_DOWNWARD     = 0x3, ///
+        }
+    }
+    else version (PPC_Any)
+    {
+        // Define bits representing the exception.
+        enum
+        {
+            FE_INEXACT                    = 0x2000000,  ///
+            FE_DIVBYZERO                  = 0x4000000,  ///
+            FE_UNDERFLOW                  = 0x8000000,  ///
+            FE_OVERFLOW                   = 0x10000000, ///
+            FE_INVALID                    = 0x20000000, ///
+            FE_INVALID_SNAN               = 0x1000000,  /// non-standard
+            FE_INVALID_ISI                = 0x800000,   /// non-standard
+            FE_INVALID_IDI                = 0x400000,   /// non-standard
+            FE_INVALID_ZDZ                = 0x200000,   /// non-standard
+            FE_INVALID_IMZ                = 0x100000,   /// non-standard
+            FE_INVALID_COMPARE            = 0x80000,    /// non-standard
+            FE_INVALID_SOFTWARE           = 0x400,      /// non-standard
+            FE_INVALID_SQRT               = 0x200,      /// non-standard
+            FE_INVALID_INTEGER_CONVERSION = 0x100,      /// non-standard
+            FE_ALL_INVALID                = 0x1F80700,  /// non-standard
+            FE_ALL_EXCEPT                 = 0x3E000000, ///
+        }
+
+        // PowerPC chips support all of the four defined rounding modes.
+        enum
+        {
+            FE_TONEAREST    = 0, ///
+            FE_TOWARDZERO   = 1, ///
+            FE_UPWARD       = 2, ///
+            FE_DOWNWARD     = 3, ///
+        }
+    }
+    else version (RISCV_Any)
     {
         // Define bits representing exceptions in the FPSR status word.
         enum
         {
-            FE_INVALID      = 1,  ///
-            FE_DIVBYZERO    = 2,  ///
-            FE_OVERFLOW     = 4,  ///
-            FE_UNDERFLOW    = 8,  ///
-            FE_INEXACT      = 16, ///
-            FE_ALL_EXCEPT   = 31, ///
+            FE_INEXACT      = 0x01, ///
+            FE_UNDERFLOW    = 0x02, ///
+            FE_OVERFLOW     = 0x04, ///
+            FE_DIVBYZERO    = 0x08, ///
+            FE_INVALID      = 0x10, ///
+            FE_ALL_EXCEPT   = 0x1f, ///
         }
 
         // Define bits representing rounding modes in the FPCR Rmode field.
         enum
         {
-            FE_TONEAREST    = 0x000000, ///
-            FE_UPWARD       = 0x400000, ///
-            FE_DOWNWARD     = 0x800000, ///
-            FE_TOWARDZERO   = 0xC00000, ///
-        }
-    }
-    else version(MIPS32)
-    {
-        // Define bits representing the exception.
-        enum
-        {
-            FE_INEXACT      = 0x04, ///
-            FE_UNDERFLOW    = 0x08, ///
-            FE_OVERFLOW     = 0x10, ///
-            FE_DIVBYZERO    = 0x20, ///
-            FE_INVALID      = 0x40, ///
-            FE_ALL_EXCEPT   = 0x7C, ///
-        }
-
-        // The MIPS FPU supports all of the four defined rounding modes.
-        enum
-        {
             FE_TONEAREST    = 0x0, ///
             FE_TOWARDZERO   = 0x1, ///
-            FE_UPWARD       = 0x2, ///
-            FE_DOWNWARD     = 0x3, ///
+            FE_DOWNWARD     = 0x2, ///
+            FE_UPWARD       = 0x3, ///
         }
     }
-    else version(MIPS64)
-    {
-        // Define bits representing the exception.
-        enum
-        {
-            FE_INEXACT      = 0x04, ///
-            FE_UNDERFLOW    = 0x08, ///
-            FE_OVERFLOW     = 0x10, ///
-            FE_DIVBYZERO    = 0x20, ///
-            FE_INVALID      = 0x40, ///
-            FE_ALL_EXCEPT   = 0x7C, ///
-        }
-
-        // The MIPS FPU supports all of the four defined rounding modes.
-        enum
-        {
-            FE_TONEAREST    = 0x0, ///
-            FE_TOWARDZERO   = 0x1, ///
-            FE_UPWARD       = 0x2, ///
-            FE_DOWNWARD     = 0x3, ///
-        }
-    }
-    else version (PPC)
-    {
-        // Define bits representing the exception.
-        enum
-        {
-            FE_INEXACT                    = 0x2000000,  ///
-            FE_DIVBYZERO                  = 0x4000000,  ///
-            FE_UNDERFLOW                  = 0x8000000,  ///
-            FE_OVERFLOW                   = 0x10000000, ///
-            FE_INVALID                    = 0x20000000, ///
-            FE_INVALID_SNAN               = 0x1000000,  /// non-standard
-            FE_INVALID_ISI                = 0x800000,   /// non-standard
-            FE_INVALID_IDI                = 0x400000,   /// non-standard
-            FE_INVALID_ZDZ                = 0x200000,   /// non-standard
-            FE_INVALID_IMZ                = 0x100000,   /// non-standard
-            FE_INVALID_COMPARE            = 0x80000,    /// non-standard
-            FE_INVALID_SOFTWARE           = 0x400,      /// non-standard
-            FE_INVALID_SQRT               = 0x200,      /// non-standard
-            FE_INVALID_INTEGER_CONVERSION = 0x100,      /// non-standard
-            FE_ALL_INVALID                = 0x1F80700,  /// non-standard
-            FE_ALL_EXCEPT                 = 0x3E000000, ///
-        }
-
-        // PowerPC chips support all of the four defined rounding modes.
-        enum
-        {
-            FE_TONEAREST    = 0, ///
-            FE_TOWARDZERO   = 1, ///
-            FE_UPWARD       = 2, ///
-            FE_DOWNWARD     = 3, ///
-        }
-    }
-    else version (PPC64)
-    {
-        // Define bits representing the exception.
-        enum
-        {
-            FE_INEXACT                    = 0x2000000,  ///
-            FE_DIVBYZERO                  = 0x4000000,  ///
-            FE_UNDERFLOW                  = 0x8000000,  ///
-            FE_OVERFLOW                   = 0x10000000, ///
-            FE_INVALID                    = 0x20000000, ///
-            FE_INVALID_SNAN               = 0x1000000,  /// non-standard
-            FE_INVALID_ISI                = 0x800000,   /// non-standard
-            FE_INVALID_IDI                = 0x400000,   /// non-standard
-            FE_INVALID_ZDZ                = 0x200000,   /// non-standard
-            FE_INVALID_IMZ                = 0x100000,   /// non-standard
-            FE_INVALID_COMPARE            = 0x80000,    /// non-standard
-            FE_INVALID_SOFTWARE           = 0x400,      /// non-standard
-            FE_INVALID_SQRT               = 0x200,      /// non-standard
-            FE_INVALID_INTEGER_CONVERSION = 0x100,      /// non-standard
-            FE_ALL_INVALID                = 0x1F80700,  /// non-standard
-            FE_ALL_EXCEPT                 = 0x3E000000, ///
-        }
-
-        // PowerPC chips support all of the four defined rounding modes.
-        enum
-        {
-            FE_TONEAREST    = 0, ///
-            FE_TOWARDZERO   = 1, ///
-            FE_UPWARD       = 2, ///
-            FE_DOWNWARD     = 3, ///
-        }
-    }
-    else version(SPARC64)
+    else version (SPARC_Any)
     {
         // Define bits representing the exception.
         enum
@@ -673,7 +725,7 @@ else
             FE_DOWNWARD     = 0xc0000000, ///
         }
     }
-    else version(SystemZ)
+    else version (IBMZ_Any)
     {
         // Define bits representing the exception.
         enum
@@ -702,71 +754,71 @@ else
 
 }
 
-version( GNUFP )
+version (GNUFP)
 {
     ///
     enum FE_DFL_ENV = cast(fenv_t*)(-1);
 }
-else version( CRuntime_DigitalMars )
+else version (CRuntime_DigitalMars)
 {
     private extern __gshared fenv_t _FE_DFL_ENV;
     ///
     enum fenv_t* FE_DFL_ENV = &_FE_DFL_ENV;
 }
-else version( CRuntime_Microsoft )
+else version (CRuntime_Microsoft)
 {
     private extern __gshared fenv_t _Fenv0;
     ///
     enum FE_DFL_ENV = &_Fenv0;
 }
-else version( Darwin )
+else version (Darwin)
 {
     private extern __gshared fenv_t _FE_DFL_ENV;
     ///
     enum FE_DFL_ENV = &_FE_DFL_ENV;
 }
-else version( FreeBSD )
+else version (FreeBSD)
 {
     private extern const fenv_t __fe_dfl_env;
     ///
     enum FE_DFL_ENV = &__fe_dfl_env;
 }
-else version( NetBSD )
+else version (NetBSD)
 {
     private extern const fenv_t __fe_dfl_env;
     ///
     enum FE_DFL_ENV = &__fe_dfl_env;
 }
-else version( OpenBSD )
+else version (OpenBSD)
 {
     private extern const fenv_t __fe_dfl_env;
     ///
     enum FE_DFL_ENV = &__fe_dfl_env;
 }
-else version( DragonFlyBSD )
+else version (DragonFlyBSD)
 {
     private extern const fenv_t __fe_dfl_env;
     ///
     enum FE_DFL_ENV = &__fe_dfl_env;
 }
-else version( CRuntime_Bionic )
+else version (CRuntime_Bionic)
 {
     private extern const fenv_t __fe_dfl_env;
     ///
     enum FE_DFL_ENV = &__fe_dfl_env;
 }
-else version( Solaris )
+else version (Solaris)
 {
     private extern const fenv_t __fenv_def_env;
     ///
     enum FE_DFL_ENV = &__fenv_def_env;
 }
-else version( CRuntime_Musl )
+else version (CRuntime_Musl)
 {
     ///
     enum FE_DFL_ENV = cast(fenv_t*)(-1);
 }
-else version( CRuntime_UClibc )
+else version (CRuntime_UClibc)
 {
     ///
     enum FE_DFL_ENV = cast(fenv_t*)(-1);
@@ -800,7 +852,7 @@ int fegetenv(fenv_t* envp);
 int fesetenv(in fenv_t* envp);
 
 // MS define feraiseexcept() and feupdateenv() inline.
-version( CRuntime_Microsoft ) // supported since MSVCRT 12 (VS 2013) only
+version (CRuntime_Microsoft) // supported since MSVCRT 12 (VS 2013) only
 {
     ///
     int feraiseexcept()(int excepts)

@@ -12,7 +12,7 @@
 
 module rt.sections_win32;
 
-version(CRuntime_DigitalMars):
+version (CRuntime_DigitalMars):
 
 // debug = PRINTF;
 debug(PRINTF) import core.stdc.stdio;
@@ -31,17 +31,17 @@ struct SectionGroup
         return dg(_sections);
     }
 
-    @property immutable(ModuleInfo*)[] modules() const
+    @property immutable(ModuleInfo*)[] modules() const nothrow @nogc
     {
         return _moduleGroup.modules;
     }
 
-    @property ref inout(ModuleGroup) moduleGroup() inout
+    @property ref inout(ModuleGroup) moduleGroup() inout nothrow @nogc
     {
         return _moduleGroup;
     }
 
-    @property inout(void[])[] gcRanges() inout
+    @property inout(void[])[] gcRanges() inout nothrow @nogc
     {
         return _gcRanges[];
     }
@@ -141,7 +141,7 @@ extern(C) void _minit() nothrow @nogc;
 immutable(ModuleInfo*)[] getModuleInfos() nothrow @nogc
 out (result)
 {
-    foreach(m; result)
+    foreach (m; result)
         assert(m !is null);
 }
 do

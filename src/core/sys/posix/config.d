@@ -60,7 +60,7 @@ version (CRuntime_Glibc)
     enum __USE_GNU           = _GNU_SOURCE;
     enum __USE_REENTRANT     = _REENTRANT;
 
-    version(D_LP64)
+    version (D_LP64)
         enum __WORDSIZE=64;
     else
         enum __WORDSIZE=32;
@@ -102,10 +102,14 @@ else version (CRuntime_UClibc)
     enum __USE_GNU           = _GNU_SOURCE;
     enum __USE_REENTRANT     = _REENTRANT;
 
-    version(D_LP64)
+    version (D_LP64)
         enum __WORDSIZE=64;
     else
         enum __WORDSIZE=32;
+}
+else version (CRuntime_Bionic)
+{
+    enum __USE_GNU           = false;
 }
 else version (Solaris)
 {

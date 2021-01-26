@@ -20,15 +20,15 @@ else version (TVOS)
 else version (WatchOS)
     version = Darwin;
 
-version(Darwin):
-version(X86_64):
+version (Darwin):
+version (X86_64):
 
 // debug = PRINTF;
 import core.stdc.stdio;
 import core.stdc.string, core.stdc.stdlib;
 import core.sys.posix.pthread;
-import core.sys.osx.mach.dyld;
-import core.sys.osx.mach.getsect;
+import core.sys.darwin.mach.dyld;
+import core.sys.darwin.mach.getsect;
 import rt.deh, rt.minfo;
 import rt.util.container.array;
 
@@ -44,22 +44,22 @@ struct SectionGroup
         return dg(_sections);
     }
 
-    @property immutable(ModuleInfo*)[] modules() const
+    @property immutable(ModuleInfo*)[] modules() const nothrow @nogc
     {
         return _moduleGroup.modules;
     }
 
-    @property ref inout(ModuleGroup) moduleGroup() inout
+    @property ref inout(ModuleGroup) moduleGroup() inout nothrow @nogc
     {
         return _moduleGroup;
     }
 
-    @property inout(void[])[] gcRanges() inout
+    @property inout(void[])[] gcRanges() inout nothrow @nogc
     {
         return _gcRanges[];
     }
 
-    @property immutable(FuncTable)[] ehTables() const
+    @property immutable(FuncTable)[] ehTables() const nothrow @nogc
     {
         return _ehTables[];
     }

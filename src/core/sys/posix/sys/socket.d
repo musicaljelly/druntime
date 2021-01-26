@@ -27,6 +27,22 @@ else version (TVOS)
 else version (WatchOS)
     version = Darwin;
 
+version (ARM)     version = ARM_Any;
+version (AArch64) version = ARM_Any;
+version (HPPA)    version = HPPA_Any;
+version (MIPS32)  version = MIPS_Any;
+version (MIPS64)  version = MIPS_Any;
+version (PPC)     version = PPC_Any;
+version (PPC64)   version = PPC_Any;
+version (RISCV32) version = RISCV_Any;
+version (RISCV64) version = RISCV_Any;
+version (S390)    version = IBMZ_Any;
+version (SPARC)   version = SPARC_Any;
+version (SPARC64) version = SPARC_Any;
+version (SystemZ) version = IBMZ_Any;
+version (X86)     version = X86_Any;
+version (X86_64)  version = X86_Any;
+
 version (Posix):
 extern (C) nothrow @nogc:
 
@@ -141,7 +157,7 @@ int     sockatmark(int);
 int     socketpair(int, int, int, ref int[2]);
 */
 
-version( CRuntime_Glibc )
+version (CRuntime_Glibc)
 {
     // Some of the constants below and from the Bionic section are really from
     // the linux kernel headers.
@@ -183,7 +199,7 @@ version( CRuntime_Glibc )
         size_t cmsg_len;
         int    cmsg_level;
         int    cmsg_type;
-        static if( false /* (!is( __STRICT_ANSI__ ) && __GNUC__ >= 2) || __STDC_VERSION__ >= 199901L */ )
+        static if ( false /* (!is( __STRICT_ANSI__ ) && __GNUC__ >= 2) || __STDC_VERSION__ >= 199901L */ )
         {
             ubyte[1] __cmsg_data;
         }
@@ -194,7 +210,7 @@ version( CRuntime_Glibc )
         SCM_RIGHTS = 0x01
     }
 
-    static if( false /* (!is( __STRICT_ANSI__ ) && __GNUC__ >= 2) || __STDC_VERSION__ >= 199901L */ )
+    static if ( false /* (!is( __STRICT_ANSI__ ) && __GNUC__ >= 2) || __STDC_VERSION__ >= 199901L */ )
     {
         extern (D) ubyte[1] CMSG_DATA( cmsghdr* cmsg ) pure nothrow @nogc { return cmsg.__cmsg_data; }
     }
@@ -240,7 +256,7 @@ version( CRuntime_Glibc )
         int l_linger;
     }
 
-    version (X86)
+    version (X86_Any)
     {
         enum
         {
@@ -275,7 +291,109 @@ version( CRuntime_Glibc )
             SO_TYPE         = 3
         }
     }
-    else version (X86_64)
+    else version (HPPA_Any)
+    {
+        enum
+        {
+            SOCK_DGRAM      = 2,
+            SOCK_SEQPACKET  = 5,
+            SOCK_STREAM     = 1,
+        }
+
+        enum
+        {
+            SOL_SOCKET      = 0xffff
+        }
+
+        enum
+        {
+            SO_ACCEPTCONN   = 0x401c,
+            SO_BROADCAST    = 0x0020,
+            SO_DEBUG        = 0x0001,
+            SO_DONTROUTE    = 0x0010,
+            SO_ERROR        = 0x1007,
+            SO_KEEPALIVE    = 0x0008,
+            SO_LINGER       = 0x0080,
+            SO_OOBINLINE    = 0x0100,
+            SO_RCVBUF       = 0x1002,
+            SO_RCVLOWAT     = 0x1004,
+            SO_RCVTIMEO     = 0x1006,
+            SO_REUSEADDR    = 0x0004,
+            SO_SNDBUF       = 0x1001,
+            SO_SNDLOWAT     = 0x1003,
+            SO_SNDTIMEO     = 0x1005,
+            SO_TYPE         = 0x1008,
+        }
+    }
+    else version (MIPS_Any)
+    {
+        enum
+        {
+            SOCK_DGRAM      = 1,
+            SOCK_SEQPACKET  = 5,
+            SOCK_STREAM     = 2,
+        }
+
+        enum
+        {
+            SOL_SOCKET      = 0xffff
+        }
+
+        enum
+        {
+            SO_ACCEPTCONN   = 0x1009,
+            SO_BROADCAST    = 0x0020,
+            SO_DEBUG        = 0x0001,
+            SO_DONTROUTE    = 0x0010,
+            SO_ERROR        = 0x1007,
+            SO_KEEPALIVE    = 0x0008,
+            SO_LINGER       = 0x0080,
+            SO_OOBINLINE    = 0x0100,
+            SO_RCVBUF       = 0x1002,
+            SO_RCVLOWAT     = 0x1004,
+            SO_RCVTIMEO     = 0x1006,
+            SO_REUSEADDR    = 0x0004,
+            SO_SNDBUF       = 0x1001,
+            SO_SNDLOWAT     = 0x1003,
+            SO_SNDTIMEO     = 0x1005,
+            SO_TYPE         = 0x1008,
+        }
+    }
+    else version (PPC_Any)
+    {
+        enum
+        {
+            SOCK_DGRAM      = 2,
+            SOCK_SEQPACKET  = 5,
+            SOCK_STREAM     = 1
+        }
+
+        enum
+        {
+            SOL_SOCKET      = 1
+        }
+
+        enum
+        {
+            SO_ACCEPTCONN   = 30,
+            SO_BROADCAST    = 6,
+            SO_DEBUG        = 1,
+            SO_DONTROUTE    = 5,
+            SO_ERROR        = 4,
+            SO_KEEPALIVE    = 9,
+            SO_LINGER       = 13,
+            SO_OOBINLINE    = 10,
+            SO_RCVBUF       = 8,
+            SO_RCVLOWAT     = 16,
+            SO_RCVTIMEO     = 18,
+            SO_REUSEADDR    = 2,
+            SO_SNDBUF       = 7,
+            SO_SNDLOWAT     = 17,
+            SO_SNDTIMEO     = 19,
+            SO_TYPE         = 3
+        }
+    }
+    else version (ARM_Any)
     {
         enum
         {
@@ -310,143 +428,7 @@ version( CRuntime_Glibc )
             SO_TYPE         = 3
         }
     }
-    else version (MIPS32)
-    {
-        enum
-        {
-            SOCK_DGRAM      = 1,
-            SOCK_SEQPACKET  = 5,
-            SOCK_STREAM     = 2,
-        }
-
-        enum
-        {
-            SOL_SOCKET      = 0xffff
-        }
-
-        enum
-        {
-            SO_ACCEPTCONN   = 0x1009,
-            SO_BROADCAST    = 0x0020,
-            SO_DEBUG        = 0x0001,
-            SO_DONTROUTE    = 0x0010,
-            SO_ERROR        = 0x1007,
-            SO_KEEPALIVE    = 0x0008,
-            SO_LINGER       = 0x0080,
-            SO_OOBINLINE    = 0x0100,
-            SO_RCVBUF       = 0x1002,
-            SO_RCVLOWAT     = 0x1004,
-            SO_RCVTIMEO     = 0x1006,
-            SO_REUSEADDR    = 0x0004,
-            SO_SNDBUF       = 0x1001,
-            SO_SNDLOWAT     = 0x1003,
-            SO_SNDTIMEO     = 0x1005,
-            SO_TYPE         = 0x1008,
-        }
-    }
-    else version (MIPS64)
-    {
-        enum
-        {
-            SOCK_DGRAM      = 1,
-            SOCK_SEQPACKET  = 5,
-            SOCK_STREAM     = 2,
-        }
-
-        enum
-        {
-            SOL_SOCKET      = 0xffff
-        }
-
-        enum
-        {
-            SO_ACCEPTCONN   = 0x1009,
-            SO_BROADCAST    = 0x0020,
-            SO_DEBUG        = 0x0001,
-            SO_DONTROUTE    = 0x0010,
-            SO_ERROR        = 0x1007,
-            SO_KEEPALIVE    = 0x0008,
-            SO_LINGER       = 0x0080,
-            SO_OOBINLINE    = 0x0100,
-            SO_RCVBUF       = 0x1002,
-            SO_RCVLOWAT     = 0x1004,
-            SO_RCVTIMEO     = 0x1006,
-            SO_REUSEADDR    = 0x0004,
-            SO_SNDBUF       = 0x1001,
-            SO_SNDLOWAT     = 0x1003,
-            SO_SNDTIMEO     = 0x1005,
-            SO_TYPE         = 0x1008,
-        }
-    }
-    else version (PPC)
-    {
-        enum
-        {
-            SOCK_DGRAM      = 2,
-            SOCK_SEQPACKET  = 5,
-            SOCK_STREAM     = 1
-        }
-
-        enum
-        {
-            SOL_SOCKET      = 1
-        }
-
-        enum
-        {
-            SO_ACCEPTCONN   = 30,
-            SO_BROADCAST    = 6,
-            SO_DEBUG        = 1,
-            SO_DONTROUTE    = 5,
-            SO_ERROR        = 4,
-            SO_KEEPALIVE    = 9,
-            SO_LINGER       = 13,
-            SO_OOBINLINE    = 10,
-            SO_RCVBUF       = 8,
-            SO_RCVLOWAT     = 16,
-            SO_RCVTIMEO     = 18,
-            SO_REUSEADDR    = 2,
-            SO_SNDBUF       = 7,
-            SO_SNDLOWAT     = 17,
-            SO_SNDTIMEO     = 19,
-            SO_TYPE         = 3
-        }
-    }
-    else version (PPC64)
-    {
-        enum
-        {
-            SOCK_DGRAM      = 2,
-            SOCK_SEQPACKET  = 5,
-            SOCK_STREAM     = 1
-        }
-
-        enum
-        {
-            SOL_SOCKET      = 1
-        }
-
-        enum
-        {
-            SO_ACCEPTCONN   = 30,
-            SO_BROADCAST    = 6,
-            SO_DEBUG        = 1,
-            SO_DONTROUTE    = 5,
-            SO_ERROR        = 4,
-            SO_KEEPALIVE    = 9,
-            SO_LINGER       = 13,
-            SO_OOBINLINE    = 10,
-            SO_RCVBUF       = 8,
-            SO_RCVLOWAT     = 16,
-            SO_RCVTIMEO     = 18,
-            SO_REUSEADDR    = 2,
-            SO_SNDBUF       = 7,
-            SO_SNDLOWAT     = 17,
-            SO_SNDTIMEO     = 19,
-            SO_TYPE         = 3
-        }
-    }
-    else version (AArch64)
+    else version (RISCV_Any)
     {
         enum
         {
@@ -480,7 +462,7 @@ version( CRuntime_Glibc )
             SO_TYPE         = 3
         }
     }
-    else version (ARM)
+    else version (SPARC_Any)
     {
         enum
         {
@@ -514,41 +496,7 @@ version( CRuntime_Glibc )
             SO_TYPE         = 3
         }
     }
-    else version (SPARC64)
-    {
-        enum
-        {
-            SOCK_DGRAM      = 2,
-            SOCK_SEQPACKET  = 5,
-            SOCK_STREAM     = 1
-        }
-
-        enum
-        {
-            SOL_SOCKET      = 1
-        }
-
-        enum
-        {
-            SO_ACCEPTCONN   = 30,
-            SO_BROADCAST    = 6,
-            SO_DEBUG        = 1,
-            SO_DONTROUTE    = 5,
-            SO_ERROR        = 4,
-            SO_KEEPALIVE    = 9,
-            SO_LINGER       = 13,
-            SO_OOBINLINE    = 10,
-            SO_RCVBUF       = 8,
-            SO_RCVLOWAT     = 18,
-            SO_RCVTIMEO     = 20,
-            SO_REUSEADDR    = 2,
-            SO_SNDBUF       = 7,
-            SO_SNDLOWAT     = 19,
-            SO_SNDTIMEO     = 21,
-            SO_TYPE         = 3
-        }
-    }
-    else version (SystemZ)
+    else version (IBMZ_Any)
     {
         enum
         {
@@ -641,7 +589,7 @@ version( CRuntime_Glibc )
     int     sockatmark(int) @safe;
     int     socketpair(int, int, int, ref int[2]) @safe;
 }
-else version( Darwin )
+else version (Darwin)
 {
     alias uint   socklen_t;
     alias ubyte  sa_family_t;
@@ -797,7 +745,7 @@ else version( Darwin )
     int     sockatmark(int) @safe;
     int     socketpair(int, int, int, ref int[2]) @safe;
 }
-else version( FreeBSD )
+else version (FreeBSD)
 {
     alias uint   socklen_t;
     alias ubyte  sa_family_t;
@@ -862,13 +810,13 @@ else version( FreeBSD )
 
     extern (D) cmsghdr* CMSG_NXTHDR( msghdr* mhdr, cmsghdr* cmsg )
     {
-        if( cmsg == null )
+        if ( cmsg == null )
         {
            return CMSG_FIRSTHDR( mhdr );
         }
         else
         {
-            if( cast(ubyte*) cmsg + _ALIGN( cmsg.cmsg_len ) + _ALIGN( cmsghdr.sizeof ) >
+            if ( cast(ubyte*) cmsg + _ALIGN( cmsg.cmsg_len ) + _ALIGN( cmsghdr.sizeof ) >
                     cast(ubyte*) mhdr.msg_control + mhdr.msg_controllen )
                 return null;
             else
@@ -974,7 +922,7 @@ else version( FreeBSD )
     int     sockatmark(int) @safe;
     int     socketpair(int, int, int, ref int[2]) @safe;
 }
-else version(NetBSD)
+else version (NetBSD)
 {
     alias uint   socklen_t;
     alias ubyte  sa_family_t;
@@ -1039,13 +987,13 @@ else version(NetBSD)
 
     extern (D) cmsghdr* CMSG_NXTHDR( msghdr* mhdr, cmsghdr* cmsg )
     {
-        if( cmsg == null )
+        if ( cmsg == null )
         {
            return CMSG_FIRSTHDR( mhdr );
         }
         else
         {
-            if( cast(ubyte*) cmsg + _ALIGN( cmsg.cmsg_len ) + _ALIGN( cmsghdr.sizeof ) >
+            if ( cast(ubyte*) cmsg + _ALIGN( cmsg.cmsg_len ) + _ALIGN( cmsghdr.sizeof ) >
                     cast(ubyte*) mhdr.msg_control + mhdr.msg_controllen )
                 return null;
             else
@@ -1171,7 +1119,7 @@ else version(NetBSD)
     int     sockatmark(int) @safe;
     int     socketpair(int, int, int, ref int[2]) @safe;
 }
-else version( DragonFlyBSD )
+else version (DragonFlyBSD)
 {
     alias uint   socklen_t;
     alias ubyte  sa_family_t;
@@ -1415,13 +1363,13 @@ else version( DragonFlyBSD )
 
     extern (D) cmsghdr* CMSG_NXTHDR( msghdr* mhdr, cmsghdr* cmsg )
     {
-        if( cmsg == null )
+        if ( cmsg == null )
         {
            return CMSG_FIRSTHDR( mhdr );
         }
         else
         {
-            if( cast(ubyte*) cmsg + _ALIGN( cmsg.cmsg_len ) + _ALIGN( cmsghdr.sizeof ) >
+            if ( cast(ubyte*) cmsg + _ALIGN( cmsg.cmsg_len ) + _ALIGN( cmsghdr.sizeof ) >
                     cast(ubyte*) mhdr.msg_control + mhdr.msg_controllen )
                 return null;
             else
@@ -1622,7 +1570,7 @@ else version (Solaris)
     int     sockatmark(int) @safe;
     int     socketpair(int, int, int, ref int[2]) @safe;
 }
-else version( CRuntime_Bionic )
+else version (CRuntime_Bionic)
 {
     alias int    socklen_t;
     alias ushort sa_family_t;
@@ -1696,117 +1644,38 @@ else version( CRuntime_Bionic )
         int             cmsg_type;
     }
 
-    version (X86)
+    alias size_t __kernel_size_t;
+
+    enum
     {
-        alias uint __kernel_size_t;
-
-        enum
-        {
-            SOCK_DGRAM      = 2,
-            SOCK_SEQPACKET  = 5,
-            SOCK_STREAM     = 1
-        }
-
-        enum
-        {
-            SOL_SOCKET      = 1
-        }
-
-        enum
-        {
-            SO_ACCEPTCONN   = 30,
-            SO_BROADCAST    = 6,
-            SO_DEBUG        = 1,
-            SO_DONTROUTE    = 5,
-            SO_ERROR        = 4,
-            SO_KEEPALIVE    = 9,
-            SO_LINGER       = 13,
-            SO_OOBINLINE    = 10,
-            SO_RCVBUF       = 8,
-            SO_RCVLOWAT     = 18,
-            SO_RCVTIMEO     = 20,
-            SO_REUSEADDR    = 2,
-            SO_SNDBUF       = 7,
-            SO_SNDLOWAT     = 19,
-            SO_SNDTIMEO     = 21,
-            SO_TYPE         = 3
-        }
+        SOCK_DGRAM      = 2,
+        SOCK_SEQPACKET  = 5,
+        SOCK_STREAM     = 1
     }
-    else version (ARM)
+
+    enum
     {
-        alias uint __kernel_size_t;
-
-        enum
-        {
-            SOCK_DGRAM      = 2,
-            SOCK_SEQPACKET  = 5,
-            SOCK_STREAM     = 1
-        }
-
-        enum
-        {
-            SOL_SOCKET      = 1
-        }
-
-        enum
-        {
-            SO_ACCEPTCONN   = 30,
-            SO_BROADCAST    = 6,
-            SO_DEBUG        = 1,
-            SO_DONTROUTE    = 5,
-            SO_ERROR        = 4,
-            SO_KEEPALIVE    = 9,
-            SO_LINGER       = 13,
-            SO_OOBINLINE    = 10,
-            SO_RCVBUF       = 8,
-            SO_RCVLOWAT     = 18,
-            SO_RCVTIMEO     = 20,
-            SO_REUSEADDR    = 2,
-            SO_SNDBUF       = 7,
-            SO_SNDLOWAT     = 19,
-            SO_SNDTIMEO     = 21,
-            SO_TYPE         = 3
-        }
+        SOL_SOCKET      = 1
     }
-    else version (AArch64)
+
+    enum
     {
-        alias ulong __kernel_size_t;
-
-        enum
-        {
-            SOCK_DGRAM      = 2,
-            SOCK_SEQPACKET  = 5,
-            SOCK_STREAM     = 1
-        }
-
-        enum
-        {
-            SOL_SOCKET      = 1
-        }
-
-        enum
-        {
-            SO_ACCEPTCONN   = 30,
-            SO_BROADCAST    = 6,
-            SO_DEBUG        = 1,
-            SO_DONTROUTE    = 5,
-            SO_ERROR        = 4,
-            SO_KEEPALIVE    = 9,
-            SO_LINGER       = 13,
-            SO_OOBINLINE    = 10,
-            SO_RCVBUF       = 8,
-            SO_RCVLOWAT     = 18,
-            SO_RCVTIMEO     = 20,
-            SO_REUSEADDR    = 2,
-            SO_SNDBUF       = 7,
-            SO_SNDLOWAT     = 19,
-            SO_SNDTIMEO     = 21,
-            SO_TYPE         = 3
-        }
-    }
-    else
-    {
-        static assert(false, "Architecture not supported.");
+        SO_ACCEPTCONN   = 30,
+        SO_BROADCAST    = 6,
+        SO_DEBUG        = 1,
+        SO_DONTROUTE    = 5,
+        SO_ERROR        = 4,
+        SO_KEEPALIVE    = 9,
+        SO_LINGER       = 13,
+        SO_OOBINLINE    = 10,
+        SO_RCVBUF       = 8,
+        SO_RCVLOWAT     = 18,
+        SO_RCVTIMEO     = 20,
+        SO_REUSEADDR    = 2,
+        SO_SNDBUF       = 7,
+        SO_SNDLOWAT     = 19,
+        SO_SNDTIMEO     = 21,
+        SO_TYPE         = 3
     }
 
     enum
@@ -1862,7 +1731,7 @@ else version( CRuntime_Bionic )
     int     sockatmark(int) @safe;
     int     socketpair(int, int, int, ref int[2]) @safe;
 }
-else version( CRuntime_Musl )
+else version (CRuntime_Musl)
 {
     alias uint socklen_t;
     alias ushort sa_family_t;
@@ -1986,7 +1855,7 @@ else version( CRuntime_Musl )
     int     sockatmark(int);
     int     socketpair(int, int, int, ref int[2]);
 }
-else version( CRuntime_UClibc )
+else version (CRuntime_UClibc)
 {
     alias uint   socklen_t;
     alias ushort sa_family_t;
@@ -2188,35 +2057,35 @@ else
 AF_INET6
 */
 
-version( CRuntime_Glibc )
+version (CRuntime_Glibc)
 {
     enum
     {
         AF_INET6    = 10
     }
 }
-else version( Darwin )
+else version (Darwin)
 {
     enum
     {
         AF_INET6    = 30
     }
 }
-else version( FreeBSD )
+else version (FreeBSD)
 {
     enum
     {
         AF_INET6    = 28
     }
 }
-else version(NetBSD)
+else version (NetBSD)
 {
     enum
     {
         AF_INET6    = 24
     }
 }
-else version( DragonFlyBSD )
+else version (DragonFlyBSD)
 {
     enum
     {
@@ -2230,18 +2099,18 @@ else version (Solaris)
         AF_INET6 = 26,
     }
 }
-else version( CRuntime_Bionic )
+else version (CRuntime_Bionic)
 {
     enum
     {
         AF_INET6    = 10
     }
 }
-else version( CRuntime_Musl )
+else version (CRuntime_Musl)
 {
     enum AF_INET6 = 10;
 }
-else version( CRuntime_UClibc )
+else version (CRuntime_UClibc)
 {
     enum
     {
@@ -2260,35 +2129,35 @@ else
 SOCK_RAW
 */
 
-version( CRuntime_Glibc )
+version (CRuntime_Glibc)
 {
     enum
     {
         SOCK_RAW    = 3
     }
 }
-else version( Darwin )
+else version (Darwin)
 {
     enum
     {
         SOCK_RAW    = 3
     }
 }
-else version( FreeBSD )
+else version (FreeBSD)
 {
     enum
     {
         SOCK_RAW    = 3
     }
 }
-else version(NetBSD)
+else version (NetBSD)
 {
     enum
     {
         SOCK_RAW    = 3
     }
 }
-else version( DragonFlyBSD )
+else version (DragonFlyBSD)
 {
     enum
     {
@@ -2302,17 +2171,17 @@ else version (Solaris)
         SOCK_RAW = 4,
     }
 }
-else version( CRuntime_Bionic )
+else version (CRuntime_Bionic)
 {
     enum
     {
         SOCK_RAW    = 3
     }
 }
-else version( CRuntime_Musl )
+else version (CRuntime_Musl)
 {
 }
-else version( CRuntime_UClibc )
+else version (CRuntime_UClibc)
 {
     enum
     {

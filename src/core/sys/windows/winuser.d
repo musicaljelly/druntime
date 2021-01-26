@@ -440,6 +440,7 @@ enum WS_EX_MDICHILD = 64;
 enum WS_EX_NOACTIVATE = 0x8000000;  // w2k
 enum WS_EX_NOINHERITLAYOUT = 0x100000;  // w2k
 enum WS_EX_NOPARENTNOTIFY = 4;
+enum WS_EX_NOREDIRECTIONBITMAP = 0x00200000; // w8, s2012
 enum WS_EX_OVERLAPPEDWINDOW = 0x300;
 enum WS_EX_PALETTEWINDOW = 0x188;
 enum WS_EX_RIGHT = 0x1000;
@@ -1673,12 +1674,12 @@ enum WM_VSCROLLCLIPBOARD = 778;
 enum WM_WINDOWPOSCHANGED = 71;
 enum WM_WINDOWPOSCHANGING = 70;
 enum WM_WININICHANGE = 26;
-static if(_WIN32_WINNT >= 0x501) {
+static if (_WIN32_WINNT >= 0x501) {
 enum WM_WTSSESSION_CHANGE = 689;
 }
 enum WM_INPUT = 255;
 enum WM_KEYFIRST = 256;
-static if(_WIN32_WINNT >= 0x501) {
+static if (_WIN32_WINNT >= 0x501) {
 enum WM_UNICHAR = 265;
 enum WM_KEYLAST = 265;
 enum UNICODE_NOCHAR = 0xFFFF;
@@ -1733,7 +1734,7 @@ enum BM_GETIMAGE = 246;
 enum BM_GETSTATE = 242;
 enum BM_SETCHECK = 241;
 enum BM_SETIMAGE = 247;
-static if(_WIN32_WINNT >= 0x600) {
+static if (_WIN32_WINNT >= 0x600) {
     enum BM_SETDONTCLICK = 248;
 }
 enum BM_SETSTATE = 243;
@@ -1784,7 +1785,7 @@ enum CB_SETLOCALE = 345;
 enum CB_SETTOPINDEX = 348;
 enum CB_SHOWDROPDOWN = 335;
 
-static if(_WIN32_WINNT >= 0x501) {
+static if (_WIN32_WINNT >= 0x501) {
 enum CB_GETCOMBOBOXINFO = 356;
 }
 
@@ -1890,7 +1891,7 @@ enum LB_SETLOCALE = 421;
 enum LB_SETSEL = 389;
 enum LB_SETTABSTOPS = 402;
 enum LB_SETTOPINDEX = 407;
-static if(_WIN32_WINNT >= 0x501) {
+static if (_WIN32_WINNT >= 0x501) {
 enum LB_GETLISTBOXINFO = 434;
 }
 
@@ -1909,7 +1910,7 @@ enum SBM_SETPOS = 224;
 enum SBM_SETRANGE = 226;
 enum SBM_SETRANGEREDRAW = 230;
 enum SBM_SETSCROLLINFO = 233;
-static if(_WIN32_WINNT >= 0x501) {
+static if (_WIN32_WINNT >= 0x501) {
 enum SBM_GETSCROLLBARINFO = 235;
 }
 
@@ -4498,7 +4499,7 @@ version (Win64) {
 
 // -----
 // Aliases for Unicode or Ansi
-version(Unicode) {
+version (Unicode) {
     alias EDITWORDBREAKPROCW EDITWORDBREAKPROC;
     alias PROPENUMPROCW PROPENUMPROC;
     alias PROPENUMPROCEXW PROPENUMPROCEX;

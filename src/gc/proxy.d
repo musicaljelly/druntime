@@ -290,12 +290,12 @@ extern (C)
             }
             else
             {
-                foreach(root; gcInstance.rootIter)
+                foreach (root; gcInstance.rootIter)
                 {
                     gcProxyToSet.addRoot(root);
                 }
 
-                foreach(range; gcInstance.rangeIter)
+                foreach (range; gcInstance.rangeIter)
                 {
                     gcProxyToSet.addRange(range.pbot, range.ptop - range.pbot, range.ti);
                 }
@@ -312,12 +312,12 @@ extern (C)
         void gc_clrProxy()
         {
             // !!!
-            foreach(root; proxiedGC.rootIter)
+            foreach (root; proxiedGC.rootIter)
             {
                 gcInstance.removeRoot(root);
             }
 
-            foreach(range; proxiedGC.rangeIter)
+            foreach (range; proxiedGC.rangeIter)
             {
                 gcInstance.removeRange(range);
             }

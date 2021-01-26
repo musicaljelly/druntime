@@ -15,7 +15,20 @@ nothrow:
 
 alias UnsignedStringBuf = char[20];
 
-char[] unsignedToTempString(ulong value, return char[] buf, uint radix = 10) @safe
+/**
+Converts an unsigned integer value to a string of characters.
+
+This implementation is a template so it can be used when compiling with -betterC.
+
+Params:
+    value = the unsigned integer value to convert
+    buf   = the pre-allocated buffer used to store the result
+    radix = the numeric base to use in the conversion (defaults to 10)
+
+Returns:
+    The unsigned integer value as a string of characters
+*/
+char[] unsignedToTempString()(ulong value, return scope char[] buf, uint radix = 10) @safe
 {
     if (radix < 2)
         // not a valid radix, just return an empty string
@@ -43,7 +56,7 @@ char[] unsignedToTempString(ulong value, return char[] buf, uint radix = 10) @sa
 private struct TempStringNoAlloc
 {
     // need to handle 65 bytes for radix of 2 with negative sign.
-    private char[65] _buf;
+    private char[65] _buf = void;
     private ubyte _len;
     auto get() return
     {
@@ -52,7 +65,19 @@ private struct TempStringNoAlloc
     alias get this;
 }
 
-auto unsignedToTempString(ulong value, uint radix = 10) @safe
+/**
+Converts an unsigned integer value to a string of characters.
+
+This implementation is a template so it can be used when compiling with -betterC.
+
+Params:
+    value = the unsigned integer value to convert
+    radix = the numeric base to use in the conversion (defaults to 10)
+
+Returns:
+    The unsigned integer value as a string of characters
+*/
+auto unsignedToTempString()(ulong value, uint radix = 10) @safe
 {
     TempStringNoAlloc result = void;
     result._len = unsignedToTempString(value, result._buf, radix).length & 0xff;
@@ -86,13 +111,13 @@ unittest
 
 alias SignedStringBuf = char[20];
 
-char[] signedToTempString(long value, return char[] buf, uint radix = 10) @safe
+char[] signedToTempString(long value, return scope char[] buf, uint radix = 10) @safe
 {
     bool neg = value < 0;
-    if(neg)
+    if (neg)
         value = cast(ulong)-value;
     auto r = unsignedToTempString(value, buf, radix);
-    if(neg)
+    if (neg)
     {
         // about to do a slice without a bounds check
         auto trustedSlice(return char[] r) @trusted { assert(r.ptr > buf.ptr); return (r.ptr-1)[0..r.length+1]; }
@@ -105,10 +130,10 @@ char[] signedToTempString(long value, return char[] buf, uint radix = 10) @safe
 auto signedToTempString(long value, uint radix = 10) @safe
 {
     bool neg = value < 0;
-    if(neg)
+    if (neg)
         value = cast(ulong)-value;
     auto r = unsignedToTempString(value, radix);
-    if(neg)
+    if (neg)
     {
         r._len++;
         r.get()[0] = '-';
@@ -212,7 +237,7 @@ unittest
     static assert(!__traits(compiles, 100.numDigits!37()));
 }
 
-int dstrcmp( scope const char[] s1, scope const char[] s2 ) @trusted
+int dstrcmp()( scope const char[] s1, scope const char[] s2 ) @trusted
 {
     immutable len = s1.length <= s2.length ? s1.length : s2.length;
     if (__ctfe)
@@ -228,7 +253,7 @@ int dstrcmp( scope const char[] s1, scope const char[] s2 ) @trusted
         import core.stdc.string : memcmp;
 
         const ret = memcmp( s1.ptr, s2.ptr, len );
-        if( ret )
+        if ( ret )
             return ret;
     }
     return s1.length < s2.length ? -1 : (s1.length > s2.length);

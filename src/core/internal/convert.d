@@ -10,20 +10,43 @@
 module core.internal.convert;
 import core.internal.traits : Unqual;
 
-@trusted pure nothrow
-const(ubyte)[] toUbyte(T)(ref T val) if(is(Unqual!T == float) || is(Unqual!T == double) || is(Unqual!T == real) ||
+/+
+A @nogc function can allocate memory during CTFE.
++/
+@nogc nothrow pure @trusted
+private ubyte[] ctfe_alloc()(size_t n)
+{
+    if (!__ctfe)
+    {
+        assert(0, "CTFE only");
+    }
+    else
+    {
+        static ubyte[] alloc(size_t x) nothrow pure
+        {
+            if (__ctfe) // Needed to prevent _d_newarray from appearing in compiled prorgam.
+                return new ubyte[x];
+            else
+                assert(0);
+        }
+        return (cast(ubyte[] function(size_t) @nogc nothrow pure) &alloc)(n);
+    }
+}
+
+@trusted pure nothrow @nogc
+const(ubyte)[] toUbyte(T)(const ref T val) if (is(Unqual!T == float) || is(Unqual!T == double) || is(Unqual!T == real) ||
                                         is(Unqual!T == ifloat) || is(Unqual!T == idouble) || is(Unqual!T == ireal))
 {
     static const(ubyte)[] reverse_(const(ubyte)[] arr)
     {
-        ubyte[] buff = new ubyte[arr.length];
-        foreach(k, v; arr)
+        ubyte[] buff = ctfe_alloc(arr.length);
+        foreach (k, v; arr)
         {
             buff[$-k-1] = v;
         }
         return buff;
     }
-    if(__ctfe)
+    if (__ctfe)
     {
         auto parsed = parse(val);
 
@@ -31,19 +54,37 @@ const(ubyte)[] toUbyte(T)(ref T val) if(is(Unqual!T == float) || is(Unqual!T == 
         uint exp = parsed.exponent;
         uint sign = parsed.sign;
 
-        ubyte[T.sizeof] buff;
+        ubyte[] buff = ctfe_alloc(T.sizeof);
         size_t off_bytes = 0;
         size_t off_bits  = 0;
+        // Quadruples won't fit in one ulong, so check for that.
+        enum mantissaMax = FloatTraits!T.MANTISSA < ulong.sizeof*8 ?
+                           FloatTraits!T.MANTISSA : ulong.sizeof*8;
 
-        for(; off_bytes < FloatTraits!T.MANTISSA/8; ++off_bytes)
+        for (; off_bytes < mantissaMax/8; ++off_bytes)
         {
             buff[off_bytes] = cast(ubyte)mantissa;
             mantissa >>= 8;
         }
-        off_bits = FloatTraits!T.MANTISSA%8;
-        buff[off_bytes] = cast(ubyte)mantissa;
 
-        for(size_t i=0; i<FloatTraits!T.EXPONENT/8; ++i)
+        static if (floatFormat!T == FloatFormat.Quadruple)
+        {
+            ulong mantissa2 = parsed.mantissa2;
+            off_bytes--; // go back one, since mantissa only stored data in 56
+                         // bits, ie 7 bytes
+            for (; off_bytes < FloatTraits!T.MANTISSA/8; ++off_bytes)
+            {
+                buff[off_bytes] = cast(ubyte)mantissa2;
+                mantissa2 >>= 8;
+            }
+        }
+        else
+        {
+            off_bits = FloatTraits!T.MANTISSA%8;
+            buff[off_bytes] = cast(ubyte)mantissa;
+        }
+
+        for (size_t i=0; i<FloatTraits!T.EXPONENT/8; ++i)
         {
             ubyte cur_exp = cast(ubyte)exp;
             exp >>= 8;
@@ -58,9 +99,9 @@ const(ubyte)[] toUbyte(T)(ref T val) if(is(Unqual!T == float) || is(Unqual!T == 
         sign <<= 7;
         buff[off_bytes] |= sign;
 
-        version(LittleEndian)
+        version (LittleEndian)
         {
-            return buff.dup;
+            return buff;
         }
         else
         {
@@ -73,24 +114,24 @@ const(ubyte)[] toUbyte(T)(ref T val) if(is(Unqual!T == float) || is(Unqual!T == 
     }
 }
 
-@safe pure nothrow
-private Float parse(bool is_denormalized = false, T)(T x) if(is(Unqual!T == ifloat) || is(Unqual!T == idouble) || is(Unqual!T == ireal))
+@safe pure nothrow @nogc
+private Float parse(bool is_denormalized = false, T)(T x) if (is(Unqual!T == ifloat) || is(Unqual!T == idouble) || is(Unqual!T == ireal))
 {
     return parse(x.im);
 }
 
-@safe pure nothrow
-private Float parse(bool is_denormalized = false, T:real)(T x_) if(floatFormat!T != FloatFormat.Real80)
+@safe pure nothrow @nogc
+private Float parse(bool is_denormalized = false, T:real)(T x_) if (floatFormat!T != FloatFormat.Real80)
 {
     Unqual!T x = x_;
-    assert(floatFormat!T != FloatFormat.DoubleDouble && floatFormat!T != FloatFormat.Quadruple,
-           "doubledouble and quadruple float formats are not supported in CTFE");
-    if(x is cast(T)0.0) return FloatTraits!T.ZERO;
-    if(x is cast(T)-0.0) return FloatTraits!T.NZERO;
-    if(x is T.nan) return FloatTraits!T.NAN;
-    if(x is -T.nan) return FloatTraits!T.NNAN;
-    if(x is T.infinity || x > T.max) return FloatTraits!T.INF;
-    if(x is -T.infinity || x < -T.max) return FloatTraits!T.NINF;
+    static assert(floatFormat!T != FloatFormat.DoubleDouble,
+           "doubledouble float format not supported in CTFE");
+    if (x is cast(T)0.0) return FloatTraits!T.ZERO;
+    if (x is cast(T)-0.0) return FloatTraits!T.NZERO;
+    if (x is T.nan) return FloatTraits!T.NAN;
+    if (x is -T.nan) return FloatTraits!T.NNAN;
+    if (x is T.infinity || x > T.max) return FloatTraits!T.INF;
+    if (x is -T.infinity || x < -T.max) return FloatTraits!T.NINF;
 
     uint sign = x < 0;
     x = sign ? -x : x;
@@ -98,50 +139,71 @@ private Float parse(bool is_denormalized = false, T:real)(T x_) if(floatFormat!T
     real x2 = x;
     uint exp = cast(uint)(e + (2^^(FloatTraits!T.EXPONENT-1) - 1));
 
-    if(!exp)
+    if (!exp)
     {
-        if(is_denormalized)
+        if (is_denormalized)
             return Float(0, 0, sign);
         else
-            return Float(denormalizedMantissa(x), 0, sign);
+            return denormalizedMantissa(x, sign);
     }
 
     x2 /= binPow2(e);
 
-    static if(!is_denormalized)
+    static if (!is_denormalized)
         x2 -= 1.0;
 
-    x2 *=  2UL<<(FloatTraits!T.MANTISSA);
-    ulong mant = shiftrRound(cast(ulong)x2);
-    return Float(mant, exp, sign);
+    static if (floatFormat!T == FloatFormat.Quadruple)
+    {
+        // Store the 112-bit mantissa in two ulongs, specifically the lower 56
+        // bits of each, with the most significant bits in mantissa2. There's
+        // an edge case exposed by the labeled test below, where only a subnormal
+        // with the highest bit set being the 57th bit will "overflow" to the
+        // 57th bit in mantissa2 with the following logic, but that special case
+        // is handled by an additional check in denormalizedMantissa for
+        // Quadruples below.
+
+        x2 *=  2UL<<(FloatTraits!T.MANTISSA - (ulong.sizeof - 1)*8 - 1);
+        ulong mant2 = cast(ulong) x2;
+        x2 -= mant2;
+
+        x2 *=  2UL<<((ulong.sizeof - 1)*8 - 1);
+        ulong mant = cast(ulong) x2;
+        return Float(mant, exp, sign, mant2);
+    }
+    else
+    {
+        x2 *=  2UL<<(FloatTraits!T.MANTISSA);
+        ulong mant = shiftrRound(cast(ulong)x2);
+        return Float(mant, exp, sign);
+    }
 }
 
-@safe pure nothrow
-private Float parse(bool _ = false, T:real)(T x_) if(floatFormat!T == FloatFormat.Real80)
+@safe pure nothrow @nogc
+private Float parse(bool _ = false, T:real)(T x_) if (floatFormat!T == FloatFormat.Real80)
 {
     Unqual!T x = x_;
     //HACK @@@3632@@@
 
-    if(x == 0.0L)
+    if (x == 0.0L)
     {
         real y = 1.0L/x;
-        if(y == real.infinity) // -0.0
+        if (y == real.infinity) // -0.0
             return FloatTraits!T.ZERO;
         else
             return FloatTraits!T.NZERO; //0.0
     }
 
-    if(x != x) //HACK: should be if(x is real.nan) and if(x is -real.nan)
+    if (x != x) //HACK: should be if (x is real.nan) and if (x is -real.nan)
     {
         auto y = cast(double)x;
-        if(y is double.nan)
+        if (y is double.nan)
             return FloatTraits!T.NAN;
         else
             return FloatTraits!T.NNAN;
     }
 
-    if(x == real.infinity) return FloatTraits!T.INF;
-    if(x == -real.infinity) return FloatTraits!T.NINF;
+    if (x == real.infinity) return FloatTraits!T.INF;
+    if (x == -real.infinity) return FloatTraits!T.NINF;
 
     enum EXPONENT_MED = (2^^(FloatTraits!T.EXPONENT-1) - 1);
     uint sign = x < 0;
@@ -149,9 +211,9 @@ private Float parse(bool _ = false, T:real)(T x_) if(floatFormat!T == FloatForma
 
     int e = binLog2(x);
     uint exp = cast(uint)(e + EXPONENT_MED);
-    if(!exp)
+    if (!exp)
     {
-        return Float(denormalizedMantissa(x), 0, sign);
+        return denormalizedMantissa(x, sign);
     }
     int pow = (FloatTraits!T.MANTISSA-1-e);
     x *=  binPow2((pow / EXPONENT_MED)*EXPONENT_MED); //To avoid overflow in 2.0L ^^ pow
@@ -165,10 +227,12 @@ private struct Float
     ulong mantissa;
     uint exponent;
     uint sign;
+    ulong mantissa2;
 }
 
-private template FloatTraits(T) if(floatFormat!T == FloatFormat.Float)
+private template FloatTraits(T) if (floatFormat!T == FloatFormat.Float)
 {
+    enum DATASIZE = 4;
     enum EXPONENT = 8;
     enum MANTISSA = 23;
     enum ZERO     = Float(0, 0, 0);
@@ -179,8 +243,9 @@ private template FloatTraits(T) if(floatFormat!T == FloatFormat.Float)
     enum NINF     = Float(0, 255, 1);
 }
 
-private template FloatTraits(T) if(floatFormat!T == FloatFormat.Double)
+private template FloatTraits(T) if (floatFormat!T == FloatFormat.Double)
 {
+    enum DATASIZE = 8;
     enum EXPONENT = 11;
     enum MANTISSA = 52;
     enum ZERO     = Float(0, 0, 0);
@@ -191,8 +256,9 @@ private template FloatTraits(T) if(floatFormat!T == FloatFormat.Double)
     enum NINF     = Float(0, 0x7ff, 1);
 }
 
-private template FloatTraits(T) if(floatFormat!T == FloatFormat.Real80)
+private template FloatTraits(T) if (floatFormat!T == FloatFormat.Real80)
 {
+    enum DATASIZE = 10;
     enum EXPONENT = 15;
     enum MANTISSA = 64;
     enum ZERO     = Float(0, 0, 0);
@@ -203,8 +269,9 @@ private template FloatTraits(T) if(floatFormat!T == FloatFormat.Real80)
     enum NINF     = Float(0x8000000000000000UL, 0x7fff, 1);
 }
 
-private template FloatTraits(T) if(floatFormat!T == FloatFormat.DoubleDouble) //Unsupported in CTFE
+private template FloatTraits(T) if (floatFormat!T == FloatFormat.DoubleDouble) //Unsupported in CTFE
 {
+    enum DATASIZE = 16;
     enum EXPONENT = 11;
     enum MANTISSA = 106;
     enum ZERO     = Float(0, 0, 0);
@@ -215,33 +282,34 @@ private template FloatTraits(T) if(floatFormat!T == FloatFormat.DoubleDouble) //
     enum NINF     = Float(0, 0x7ff, 1);
 }
 
-private template FloatTraits(T) if(floatFormat!T == FloatFormat.Quadruple) //Unsupported in CTFE
+private template FloatTraits(T) if (floatFormat!T == FloatFormat.Quadruple)
 {
+    enum DATASIZE = 16;
     enum EXPONENT = 15;
     enum MANTISSA = 112;
     enum ZERO     = Float(0, 0, 0);
     enum NZERO    = Float(0, 0, 1);
-    enum NAN      = Float(-1, 0x7fff, 0);
-    enum NNAN     = Float(-1, 0x7fff, 1);
+    enum NAN      = Float(0, 0x7fff, 0, 0x80000000000000UL);
+    enum NNAN     = Float(0, 0x7fff, 1, 0x80000000000000UL);
     enum INF      = Float(0, 0x7fff, 0);
     enum NINF     = Float(0, 0x7fff, 1);
 }
 
 
-@safe pure nothrow
+@safe pure nothrow @nogc
 private real binPow2(int pow)
 {
-    static real binPosPow2(int pow) @safe pure nothrow
+    static real binPosPow2(int pow) @safe pure nothrow @nogc
     {
         assert(pow > 0);
 
-        if(pow == 1) return 2.0L;
+        if (pow == 1) return 2.0L;
 
         int subpow = pow/2;
         real p = binPosPow2(subpow);
         real ret = p*p;
 
-        if(pow%2)
+        if (pow%2)
         {
             ret *= 2.0L;
         }
@@ -249,32 +317,32 @@ private real binPow2(int pow)
         return ret;
     }
 
-    if(!pow) return 1.0L;
-    if(pow > 0) return binPosPow2(pow);
+    if (!pow) return 1.0L;
+    if (pow > 0) return binPosPow2(pow);
     return 1.0L/binPosPow2(-pow);
 }
 
 
 //Need in CTFE, because CTFE float and double expressions computed more precisely that run-time expressions.
-@safe pure nothrow
+@safe pure nothrow @nogc
 private ulong shiftrRound(ulong x)
 {
     return (x >> 1) + (x & 1);
 }
 
-@safe pure nothrow
-private uint binLog2(T)(T x)
+@safe pure nothrow @nogc
+private uint binLog2(T)(const T x)
 {
     assert(x > 0);
     int max = 2 ^^ (FloatTraits!T.EXPONENT-1)-1;
     int min = -max+1;
     int med = (min + max) / 2;
 
-    if(x < T.min_normal) return -max;
+    if (x < T.min_normal) return -max;
 
-    while((max - min) > 1)
+    while ((max - min) > 1)
     {
-        if(binPow2(med) > x)
+        if (binPow2(med) > x)
         {
             max = med;
         }
@@ -285,30 +353,58 @@ private uint binLog2(T)(T x)
         med = (min + max) / 2;
     }
 
-    if(x < binPow2(max))
+    if (x < binPow2(max))
         return min;
     return max;
 }
 
-@safe pure nothrow
-private ulong denormalizedMantissa(T)(T x) if(floatFormat!T == FloatFormat.Real80)
+@safe pure nothrow @nogc
+private Float denormalizedMantissa(T)(T x, uint sign) if (floatFormat!T == FloatFormat.Real80)
 {
     x *= 2.0L^^FloatTraits!T.MANTISSA;
     auto fl = parse(x);
     uint pow = FloatTraits!T.MANTISSA - fl.exponent + 1;
-    return fl.mantissa >> pow;
+    return Float(fl.mantissa >> pow, 0, sign);
 }
 
-@safe pure nothrow
-private ulong denormalizedMantissa(T)(T x) if(floatFormat!T != FloatFormat.Real80)
+@safe pure nothrow @nogc
+private Float denormalizedMantissa(T)(T x, uint sign)
+    if (floatFormat!T == FloatFormat.Float || floatFormat!T == FloatFormat.Double)
 {
     x *= 2.0L^^FloatTraits!T.MANTISSA;
     auto fl = parse!true(x);
     ulong mant = fl.mantissa >> (FloatTraits!T.MANTISSA - fl.exponent);
-    return shiftrRound(mant);
+    return Float(shiftrRound(mant), 0, sign);
 }
 
-version(unittest)
+@safe pure nothrow @nogc
+private Float denormalizedMantissa(T)(T x, uint sign) if (floatFormat!T == FloatFormat.Quadruple)
+{
+    x *= 2.0L^^FloatTraits!T.MANTISSA;
+    auto fl = parse!true(x);
+    uint offset = FloatTraits!T.MANTISSA - fl.exponent + 1;
+    enum mantissaSize = (ulong.sizeof - 1) * 8;
+
+    if (offset < mantissaSize)
+    {   // Create a new mantissa ulong with the trailing mantissa2 bits that
+        // need to be shifted into mantissa, by shifting the needed bits left,
+        // zeroing out the first byte, and then ORing it with mantissa shifted
+        // right by offset.
+
+        ulong shiftedMantissa = ((fl.mantissa2 << (mantissaSize - offset)) &
+                                 0x00FFFFFFFFFFFFFFUL) | fl.mantissa >> offset;
+        return Float(shiftedMantissa, 0, sign, fl.mantissa2 >> offset);
+    }
+    else if (offset > mantissaSize)
+        return Float(fl.mantissa2 >> offset - mantissaSize , 0, sign, 0);
+    else
+        // Handle special case mentioned in parse() above by zeroing out the
+        // 57'th bit of mantissa2, "shifting" it into mantissa, and setting the
+        // first bit of mantissa2.
+        return Float(fl.mantissa2 & 0x00FFFFFFFFFFFFFFUL , 0, sign, 1);
+}
+
+version (unittest)
 {
     private const(ubyte)[] toUbyte2(T)(T val)
     {
@@ -403,6 +499,8 @@ version(unittest)
 
         testNumberConvert!("real.min_normal/2");
         testNumberConvert!("real.min_normal/2UL^^63");
+        // check subnormal storage edge case for Quadruple
+        testNumberConvert!("real.min_normal/2UL^^56");
         testNumberConvert!("real.min_normal/19");
         testNumberConvert!("real.min_normal/17");
 
@@ -457,39 +555,46 @@ private enum FloatFormat
     Quadruple
 }
 
-template floatFormat(T) if(is(T:real) || is(T:ireal))
+template floatFormat(T) if (is(T:real) || is(T:ireal))
 {
-    static if(T.mant_dig == 24)
+    static if (T.mant_dig == 24)
         enum floatFormat = FloatFormat.Float;
-    else static if(T.mant_dig == 53)
+    else static if (T.mant_dig == 53)
         enum floatFormat = FloatFormat.Double;
-    else static if(T.mant_dig == 64)
+    else static if (T.mant_dig == 64)
         enum floatFormat = FloatFormat.Real80;
-    else static if(T.mant_dig == 106)
+    else static if (T.mant_dig == 106)
         enum floatFormat = FloatFormat.DoubleDouble;
-    else static if(T.mant_dig == 113)
+    else static if (T.mant_dig == 113)
         enum floatFormat = FloatFormat.Quadruple;
     else
         static assert(0);
 
 }
 
+package template floatSize(T) if (is(T:real) || is(T:ireal))
+{
+    enum floatSize = FloatTraits!(T).DATASIZE;
+}
+
 //  all toUbyte functions must be evaluable at compile time
-@trusted pure nothrow
-const(ubyte)[] toUbyte(T)(T[] arr) if (T.sizeof == 1)
+@trusted pure nothrow @nogc
+const(ubyte)[] toUbyte(T)(const T[] arr) if (T.sizeof == 1)
 {
     return cast(const(ubyte)[])arr;
 }
 
-@trusted pure nothrow
-const(ubyte)[] toUbyte(T)(T[] arr) if ((is(typeof(toUbyte(arr[0])) == const(ubyte)[])) && (T.sizeof > 1))
+@trusted pure nothrow @nogc
+const(ubyte)[] toUbyte(T)(const T[] arr) if ((is(typeof(toUbyte(arr[0])) == const(ubyte)[])) && (T.sizeof > 1))
 {
     if (__ctfe)
     {
-        const(ubyte)[] ret;
+        ubyte[] ret = ctfe_alloc(T.sizeof * arr.length);
+        size_t offset = 0;
         foreach (cur; arr)
         {
-            ret ~= toUbyte(cur);
+            ret[offset .. offset + T.sizeof] = toUbyte(cur)[0 .. T.sizeof];
+            offset += T.sizeof;
         }
         return ret;
     }
@@ -499,14 +604,16 @@ const(ubyte)[] toUbyte(T)(T[] arr) if ((is(typeof(toUbyte(arr[0])) == const(ubyt
     }
 }
 
-@trusted pure nothrow
-const(ubyte)[] toUbyte(T)(ref T val) if (__traits(isIntegral, T) && !is(T == enum))
+@trusted pure nothrow @nogc
+const(ubyte)[] toUbyte(T)(const ref T val) if (__traits(isIntegral, T) && !is(T == enum) && !is(T == __vector))
 {
     static if (T.sizeof == 1)
     {
         if (__ctfe)
         {
-            return cast(const(ubyte)[])[val];
+            ubyte[] result = ctfe_alloc(1);
+            result[0] = cast(ubyte) val;
+            return result;
         }
         else
         {
@@ -515,17 +622,17 @@ const(ubyte)[] toUbyte(T)(ref T val) if (__traits(isIntegral, T) && !is(T == enu
     }
     else if (__ctfe)
     {
-        ubyte[T.sizeof] tmp;
+        ubyte[] tmp = ctfe_alloc(T.sizeof);
         Unqual!T val_ = val;
         for (size_t i = 0; i < T.sizeof; ++i)
         {
             size_t idx;
-            version(LittleEndian) idx = i;
+            version (LittleEndian) idx = i;
             else idx = T.sizeof-i-1;
             tmp[idx] = cast(ubyte)(val_&0xff);
             val_ >>= 8;
         }
-        return tmp[].dup;
+        return tmp;
     }
     else
     {
@@ -533,14 +640,41 @@ const(ubyte)[] toUbyte(T)(ref T val) if (__traits(isIntegral, T) && !is(T == enu
     }
 }
 
-@trusted pure nothrow
-const(ubyte)[] toUbyte(T)(ref T val) if (is(Unqual!T == cfloat) || is(Unqual!T == cdouble) ||is(Unqual!T == creal))
+@trusted pure nothrow @nogc
+const(ubyte)[] toUbyte(T)(const ref T val) if (is(T == __vector))
+{
+    if (!__ctfe)
+        return (cast(const ubyte*) &val)[0 .. T.sizeof];
+    else static if (is(typeof(val[0]) : void))
+        assert(0, "Unable to compute byte representation of " ~ T.stringof ~ " at compile time.");
+    else
+    {
+        // This code looks like it should work in CTFE but it segfaults:
+        //    auto a = val.array;
+        //    return toUbyte(a);
+        alias E = typeof(val[0]);
+        ubyte[] result = ctfe_alloc(T.sizeof);
+        for (size_t i = 0, j = 0; i < T.sizeof; i += E.sizeof, ++j)
+        {
+            result[i .. i + E.sizeof] = toUbyte(val[j]);
+        }
+        return result;
+    }
+}
+
+@trusted pure nothrow @nogc
+const(ubyte)[] toUbyte(T)(const ref T val) if (is(Unqual!T == cfloat) || is(Unqual!T == cdouble) ||is(Unqual!T == creal))
 {
     if (__ctfe)
     {
         auto re = val.re;
         auto im = val.im;
-        return (re.toUbyte() ~ im.toUbyte());
+        auto a = re.toUbyte();
+        auto b = im.toUbyte();
+        ubyte[] result = ctfe_alloc(a.length + b.length);
+        result[0 .. a.length] = a[0 .. a.length];
+        result[a.length .. $] = b[0 .. b.length];
+        return result;
     }
     else
     {
@@ -548,13 +682,13 @@ const(ubyte)[] toUbyte(T)(ref T val) if (is(Unqual!T == cfloat) || is(Unqual!T =
     }
 }
 
-@trusted pure nothrow
-const(ubyte)[] toUbyte(T)(ref T val) if (is(T V == enum) && is(typeof(toUbyte(cast(V)val)) == const(ubyte)[]))
+@trusted pure nothrow @nogc
+const(ubyte)[] toUbyte(T)(const ref T val) if (is(T V == enum) && is(typeof(toUbyte(cast(const V)val)) == const(ubyte)[]))
 {
     if (__ctfe)
     {
         static if (is(T V == enum)){}
-        return toUbyte(cast(V) val);
+        return toUbyte(cast(const V) val);
     }
     else
     {
@@ -571,7 +705,7 @@ nothrow pure @safe unittest
     enum ctfe_works = (() => { Month x = Month.jan; return toUbyte(x).length > 0; })();
 }
 
-private bool isNonReference(T)()
+package(core.internal) bool isNonReference(T)()
 {
     static if (is(T == struct) || is(T == union))
     {
@@ -579,7 +713,10 @@ private bool isNonReference(T)()
     }
     else static if (__traits(isStaticArray, T))
     {
-      return isNonReference!(typeof(T.init[0]))();
+        static if (T.length > 0)
+            return isNonReference!(typeof(T.init[0]))();
+        else
+            return true;
     }
     else static if (is(T E == enum))
     {
@@ -605,28 +742,28 @@ private bool isNonReference(T)()
 
 private bool isNonReferenceStruct(T)() if (is(T == struct) || is(T == union))
 {
-    foreach (cur; T.init.tupleof)
+    static foreach (cur; T.tupleof)
     {
-        static if (!isNonReference!(typeof(cur))()) return false;
+        if (!isNonReference!(typeof(cur))()) return false;
     }
 
     return true;
 }
 
-@trusted pure nothrow
-const(ubyte)[] toUbyte(T)(ref T val) if (is(T == struct) || is(T == union))
+@trusted pure nothrow @nogc
+const(ubyte)[] toUbyte(T)(const ref T val) if (is(T == struct) || is(T == union))
 {
     if (__ctfe)
     {
-        ubyte[T.sizeof] bytes;
+        ubyte[] bytes = ctfe_alloc(T.sizeof);
         foreach (key, cur; val.tupleof)
         {
             alias CUR_TYPE = typeof(cur);
-            static if(isNonReference!(CUR_TYPE)())
+            static if (isNonReference!(CUR_TYPE)())
             {
                 bytes[val.tupleof[key].offsetof .. val.tupleof[key].offsetof + cur.sizeof] = toUbyte(cur)[];
             }
-            else static if(is(typeof(val.tupleof[key] is null)))
+            else static if (is(typeof(val.tupleof[key] is null)))
             {
                 assert(val.tupleof[key] is null, "Unable to compute byte representation of non-null reference field at compile time");
                 //skip, because val bytes are zeros
@@ -637,7 +774,7 @@ const(ubyte)[] toUbyte(T)(ref T val) if (is(T == struct) || is(T == union))
                 assert(0, "Unable to compute byte representation of "~typeof(CUR_TYPE).stringof~" field at compile time");
             }
         }
-        return bytes[].dup;
+        return bytes;
     }
     else
     {

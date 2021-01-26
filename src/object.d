@@ -16,7 +16,7 @@ module object;
 //alias typeof(int.sizeof)                    size_t;
 //alias typeof(cast(void*)0 - cast(void*)0)   ptrdiff_t;
 
-version(D_LP64)
+version (D_LP64)
 {
     alias size_t = ulong;
     alias ptrdiff_t = long;
@@ -38,7 +38,7 @@ alias dstring = immutable(dchar)[];
 
 version (D_ObjectiveC) public import core.attribute : selector;
 
-int __cmp(T)(const T[] lhs, const T[] rhs) @trusted
+int __cmp(T)(scope const T[] lhs, scope const T[] rhs) @trusted
     if (__traits(isScalar, T))
 {
     // Compute U as the implementation type for T
@@ -69,6 +69,22 @@ int __cmp(T)(const T[] lhs, const T[] rhs) @trusted
     }
     else
     {
+        version (BigEndian)
+        static if (__traits(isUnsigned, T) ? !is(T == __vector) : is(T : P*, P))
+        {
+            if (!__ctfe)
+            {
+                import core.stdc.string : memcmp;
+                int c = memcmp(lhs.ptr, rhs.ptr, (lhs.length <= rhs.length ? lhs.length : rhs.length) * T.sizeof);
+                if (c)
+                    return c;
+                static if (size_t.sizeof <= uint.sizeof && T.sizeof >= 2)
+                    return cast(int) lhs.length - cast(int) rhs.length;
+                else
+                    return int(lhs.length > rhs.length) - int(lhs.length < rhs.length);
+            }
+        }
+
         immutable len = lhs.length <= rhs.length ? lhs.length : rhs.length;
         foreach (const u; 0 .. len)
         {
@@ -483,28 +499,44 @@ unittest
 }
 
 /**
-Destroys the given object and sets it back to its initial state. It's used to
+Destroys the given object and optionally resets to initial state. It's used to
 _destroy an object, calling its destructor or finalizer so it no longer
 references any other objects. It does $(I not) initiate a GC cycle or free
 any GC memory.
+If `initialize` is supplied `false`, the object is considered invalid after
+destruction, and should not be referenced.
 */
-void destroy(T)(ref T obj) if (is(T == struct))
+void destroy(bool initialize = true, T)(ref T obj) if (is(T == struct))
 {
-    // We need to re-initialize `obj`.  Previously, the code
-    // `auto init = cast(ubyte[])typeid(T).initializer()` was used, but
-    // `typeid` is a runtime call and requires the `TypeInfo` object which is
-    // not usable when compiling with -betterC.  If we do `obj = T.init` then we
-    // end up needlessly calling postblits and destructors.  So, we create a
-    // static immutable lvalue that can be re-used with subsequent calls to `destroy`
-    shared static immutable T init = T.init;
-
     _destructRecurse(obj);
-    () @trusted {
-        import core.stdc.string : memcpy;
-        auto dest = (cast(ubyte*) &obj)[0 .. T.sizeof];
-        auto src = (cast(ubyte*) &init)[0 .. T.sizeof];
-        memcpy(dest.ptr, src.ptr, T.sizeof);
-    } ();
+
+    static if (initialize)
+    {
+        // We need to re-initialize `obj`.  Previously, an immutable static
+        // and memcpy were used to hold an initializer. With improved unions, this is no longer
+        // needed.
+        union UntypedInit
+        {
+            T dummy;
+        }
+        static struct UntypedStorage
+        {
+            align(T.alignof) void[T.sizeof] dummy;
+        }
+
+        () @trusted {
+            *cast(UntypedStorage*) &obj = cast(UntypedStorage) UntypedInit.init;
+        } ();
+    }
+}
+
+@safe unittest
+{
+    struct A { string s = "A";  }
+    A a = {s: "B"};
+    assert(a.s == "B");
+    a.destroy;
+    assert(a.s == "A");
 }
 
 private void _destructRecurse(S)(ref S s)
@@ -522,6 +554,8 @@ nothrow @safe @nogc unittest
         struct A { string s = "A";  }
         A a;
         a.s = "asd";
+        destroy!false(a);
+        assert(a.s == "asd");
         destroy(a);
         assert(a.s == "A");
     }
@@ -548,8 +582,12 @@ nothrow @safe @nogc unittest
         B a;
         a.s = "asd";
         a.c.s = "jkl";
-        destroy(a);
+        destroy!false(a);
         assert(destroyed == 2);
+        assert(a.s == "asd");
+        assert(a.c.s == "jkl" );
+        destroy(a);
+        assert(destroyed == 4);
         assert(a.s == "B");
         assert(a.c.s == "C" );
     }
@@ -557,23 +595,28 @@ nothrow @safe @nogc unittest
 
 
     /// ditto
-    void destroy(T)(T obj) if (is(T == class))
+    void destroy(bool initialize = true, T)(T obj) if (is(T == class))
     {
-        static if(__traits(getLinkage, T) == "C++")
+        static if (__traits(getLinkage, T) == "C++")
         {
             obj.__xdtor();
 
-            enum classSize = __traits(classInstanceSize, T);
-            (cast(void*)obj)[0 .. classSize] = typeid(T).initializer[];
+            static if (initialize)
+            {
+                enum classSize = __traits(classInstanceSize, T);
+                (cast(void*)obj)[0 .. classSize] = typeid(T).initializer[];
+            }
         }
         else
             rt_finalize(cast(void*)obj);
     }
 
     /// ditto
-    void destroy(T)(T obj) if (is(T == interface))
+    void destroy(bool initialize = true, T)(T obj) if (is(T == interface))
     {
-        destroy(cast(Object)obj);
+        static assert(__traits(getLinkage, T) == "D", "Invalid call to destroy() on extern(" ~ __traits(getLinkage, T) ~ ") interface");
+
+        destroy!initialize(cast(Object)obj);
     }
 
     /// Reference type demonstration
@@ -636,10 +679,15 @@ nothrow @safe @nogc unittest
         cpp.s = "T";
         cpp.a.x = 30;
         assert(cpp.s == "T");         // `cpp.s` is `"T"`
-        destroy(cpp);
+        destroy!false(cpp);           // destroy without initialization
         assert(cpp.dtorCount == 1);   // `cpp`'s destructor was called
-        assert(cpp.s == "S");         // `cpp.s` is back to its inital state, `"S"`
+        assert(cpp.s == "T");         // `cpp.s` is not initialized
         assert(cpp.a.dtorCount == 1); // `cpp.a`'s destructor was called
+        assert(cpp.a.x == 30);        // `cpp.a.x` is not initialized
+        destroy(cpp);
+        assert(cpp.dtorCount == 2);   // `cpp`'s destructor was called again
+        assert(cpp.s == "S");         // `cpp.s` is back to its inital state, `"S"`
+        assert(cpp.a.dtorCount == 2); // `cpp.a`'s destructor was called again
         assert(cpp.a.x == 10);        // `cpp.a.x` is back to its inital state, `10`
     }
 
@@ -650,8 +698,44 @@ nothrow @safe @nogc unittest
         assert(i == 0);           // `i`'s initial state is `0`
         i = 1;
         assert(i == 1);           // `i` changed to `1`
+        destroy!false(i);
+        assert(i == 1);           // `i` was not initialized
         destroy(i);
         assert(i == 0);           // `i` is back to its initial state `0`
+    }
+
+    unittest
+    {
+        // class with an `alias this`
+        class A
+        {
+            static int dtorCount;
+            ~this()
+            {
+                dtorCount++;
+            }
+        }
+
+        class B
+        {
+            A a;
+            alias a this;
+            this()
+            {
+                a = new A;
+            }
+            static int dtorCount;
+            ~this()
+            {
+                dtorCount++;
+            }
+        }
+        auto b = new B;
+        assert(A.dtorCount == 0);
+        assert(B.dtorCount == 0);
+        destroy(b);
+        assert(A.dtorCount == 0);
+        assert(B.dtorCount == 1);
     }
 
     unittest
@@ -692,7 +776,7 @@ nothrow @safe @nogc unittest
             assert(b.s == "B");
         }
         // this test is invalid now that the default ctor is not run after clearing
-        version(none)
+        version (none)
         {
             class C
             {
@@ -715,6 +799,8 @@ nothrow @safe @nogc unittest
             struct A { string s = "A";  }
             A a;
             a.s = "asd";
+            destroy!false(a);
+            assert(a.s == "asd");
             destroy(a);
             assert(a.s == "A");
         }
@@ -741,18 +827,22 @@ nothrow @safe @nogc unittest
             B a;
             a.s = "asd";
             a.c.s = "jkl";
-            destroy(a);
+            destroy!false(a);
             assert(destroyed == 2);
+            assert(a.s == "asd");
+            assert(a.c.s == "jkl" );
+            destroy(a);
+            assert(destroyed == 4);
             assert(a.s == "B");
             assert(a.c.s == "C" );
         }
     }
 
     /// ditto
-    void destroy(T : U[n], U, size_t n)(ref T obj) if (!is(T == struct))
+    void destroy(bool initialize = true, T : U[n], U, size_t n)(ref T obj) if (!is(T == struct))
     {
         foreach_reverse (ref e; obj[])
-            destroy(e);
+            destroy!initialize(e);
     }
 
     unittest
@@ -760,6 +850,8 @@ nothrow @safe @nogc unittest
         int[2] a;
         a[0] = 1;
         a[1] = 2;
+        destroy!false(a);
+        assert(a == [ 1, 2 ]);
         destroy(a);
         assert(a == [ 0, 0 ]);
     }
@@ -772,7 +864,7 @@ nothrow @safe @nogc unittest
         }
 
         vec2f v;
-        destroy!vec2f(v);
+        destroy!(true, vec2f)(v);
     }
 
     unittest
@@ -813,10 +905,11 @@ nothrow @safe @nogc unittest
     }
 
     /// ditto
-    void destroy(T)(ref T obj)
+    void destroy(bool initialize = true, T)(ref T obj)
         if (!is(T == struct) && !is(T == interface) && !is(T == class) && !_isStaticArray!T)
     {
-        obj = T.init;
+        static if (initialize)
+            obj = T.init;
     }
 
     template _isStaticArray(T : U[N], U, size_t N)
@@ -833,13 +926,17 @@ nothrow @safe @nogc unittest
     {
         {
             int a = 42;
+            destroy!false(a);
+            assert(a == 42);
             destroy(a);
             assert(a == 0);
         }
         {
             float a = 42;
+            destroy!false(a);
+            assert(a == 42);
             destroy(a);
-            assert(isnan(a));
+            assert(a != a); // isnan
         }
     }
 
@@ -871,7 +968,15 @@ class Object
     size_t toHash() @trusted nothrow
     {
         // BUG: this prevents a compacting GC from working, needs to be fixed
-        return cast(size_t)cast(void*)this;
+        size_t addr = cast(size_t) cast(void*) this;
+        // The bottom log2((void*).alignof) bits of the address will always
+        // be 0. Moreover it is likely that each Object is allocated with a
+        // separate call to malloc. The alignment of malloc differs from
+        // platform to platform, but rather than having special cases for
+        // each platform it is safe to use a shift of 4. To minimize
+        // collisions in the low bits it is more important for the shift to
+        // not be too small than for the shift to not be too big.
+        return addr ^ (addr >>> 4);
     }
 
     /**
@@ -974,6 +1079,90 @@ bool opEquals(const Object lhs, const Object rhs)
     return opEquals(cast()lhs, cast()rhs);
 }
 
+/// If aliased to the same object or both null => equal
+@system unittest
+{
+    class F { int flag; this(int flag) { this.flag = flag; } }
+
+    F f;
+    assert(f == f); // both null
+    f = new F(1);
+    assert(f == f); // both aliased to the same object
+}
+
+/// If either is null => non-equal
+@system unittest
+{
+    class F { int flag; this(int flag) { this.flag = flag; } }
+    F f;
+    assert(!(new F(0) == f));
+    assert(!(f == new F(0)));
+}
+
+/// If same exact type => one call to method opEquals
+@system unittest
+{
+    class F
+    {
+        int flag;
+
+        this(int flag)
+        {
+            this.flag = flag;
+        }
+
+        override bool opEquals(const Object o)
+        {
+            return flag == (cast(F) o).flag;
+        }
+    }
+
+    F f;
+    assert(new F(0) == new F(0));
+    assert(!(new F(0) == new F(1)));
+}
+
+/// General case => symmetric calls to method opEquals
+@system unittest
+{
+    int fEquals, gEquals;
+
+    class Base
+    {
+        int flag;
+        this(int flag)
+        {
+            this.flag = flag;
+        }
+    }
+
+    class F : Base
+    {
+        this(int flag) { super(flag); }
+
+        override bool opEquals(const Object o)
+        {
+            fEquals++;
+            return flag == (cast(Base) o).flag;
+        }
+    }
+
+    class G : Base
+    {
+        this(int flag) { super(flag); }
+
+        override bool opEquals(const Object o)
+        {
+            gEquals++;
+            return flag == (cast(Base) o).flag;
+        }
+    }
+
+    assert(new F(1) == new G(1));
+    assert(fEquals == 1);
+    assert(gEquals == 1);
+}
+
 private extern(C) void _d_setSameMutex(shared Object ownee, shared Object owner) nothrow;
 
 void setSameMutex(shared Object ownee, shared Object owner)
@@ -1017,10 +1206,7 @@ class TypeInfo
 
     override size_t toHash() @trusted const nothrow
     {
-        import core.internal.traits : externDFunc;
-        alias hashOf = externDFunc!("rt.util.hash.hashOf",
-                                    size_t function(const(void)[], size_t) @trusted pure nothrow @nogc);
-        return hashOf(this.toString(), 0);
+        return hashOf(this.toString());
     }
 
     override int opCmp(Object o)
@@ -1056,7 +1242,10 @@ class TypeInfo
      * Bugs:
      *    fix https://issues.dlang.org/show_bug.cgi?id=12516 e.g. by changing this to a truly safe interface.
      */
-    size_t getHash(scope const void* p) @trusted nothrow const { return cast(size_t)p; }
+    size_t getHash(scope const void* p) @trusted nothrow const
+    {
+        return hashOf(p);
+    }
 
     /// Compares two instances for equality.
     bool equals(in void* p1, in void* p2) const { return p1 == p2; }
@@ -1183,7 +1372,8 @@ class TypeInfo_Pointer : TypeInfo
 
     override size_t getHash(scope const void* p) @trusted const
     {
-        return cast(size_t)*cast(void**)p;
+        size_t addr = cast(size_t) *cast(const void**)p;
+        return addr ^ (addr >> 4);
     }
 
     override bool equals(in void* p1, in void* p2) const
@@ -1655,34 +1845,6 @@ class TypeInfo_Delegate : TypeInfo
     }
 }
 
-unittest
-{
-    // Bugzilla 15367
-    void f1() {}
-    void f2() {}
-
-    // TypeInfo_Delegate.getHash
-    int[void delegate()] aa;
-    assert(aa.length == 0);
-    aa[&f1] = 1;
-    assert(aa.length == 1);
-    aa[&f1] = 1;
-    assert(aa.length == 1);
-
-    auto a1 = [&f2, &f1];
-    auto a2 = [&f2, &f1];
-
-    // TypeInfo_Delegate.equals
-    for (auto i = 0; i < 2; i++)
-        assert(a1[i] == a2[i]);
-    assert(a1 == a2);
-
-    // TypeInfo_Delegate.compare
-    for (auto i = 0; i < 2; i++)
-        assert(a1[i] <= a2[i]);
-    assert(a1 <= a2);
-}
-
 /**
  * Runtime type information about a class.
  * Can be retrieved from an object instance by using the
@@ -1857,6 +2019,10 @@ class TypeInfo_Interface : TypeInfo
 
     override size_t getHash(scope const void* p) @trusted const
     {
+        if (!*cast(void**)p)
+        {
+            return 0;
+        }
         Interface* pi = **cast(Interface ***)*cast(void**)p;
         Object o = cast(Object)(*cast(void**)p - pi.offset);
         assert(o);
@@ -1934,10 +2100,7 @@ class TypeInfo_Struct : TypeInfo
         }
         else
         {
-            import core.internal.traits : externDFunc;
-            alias hashOf = externDFunc!("rt.util.hash.hashOf",
-                                        size_t function(const(void)[], size_t) @trusted pure nothrow @nogc);
-            return hashOf(p[0 .. initializer().length], 0);
+            return hashOf(p[0 .. initializer().length]);
         }
     }
 
@@ -2703,6 +2866,22 @@ class Exception : Throwable
     }
 }
 
+///
+@safe unittest
+{
+    bool gotCaught;
+    try
+    {
+        throw new Exception("msg");
+    }
+    catch (Exception e)
+    {
+        gotCaught = true;
+        assert(e.msg == "msg");
+    }
+    assert(gotCaught);
+}
+
 unittest
 {
     {
@@ -2770,6 +2949,22 @@ class Error : Throwable
     Throwable   bypassedException;
 }
 
+///
+@system unittest
+{
+    bool gotCaught;
+    try
+    {
+        throw new Error("msg");
+    }
+    catch (Error e)
+    {
+        gotCaught = true;
+        assert(e.msg == "msg");
+    }
+    assert(gotCaught);
+}
+
 unittest
 {
     {
@@ -2814,6 +3009,7 @@ extern (C)
 
     // size_t _aaLen(in void* p) pure nothrow @nogc;
     private void* _aaGetY(void** paa, const TypeInfo_AssociativeArray ti, in size_t valuesize, in void* pkey) pure nothrow;
+    private void* _aaGetX(void** paa, const TypeInfo_AssociativeArray ti, in size_t valuesize, in void* pkey, out bool found) pure nothrow;
     // inout(void)* _aaGetRvalueX(inout void* p, in TypeInfo keyti, in size_t valuesize, in void* pkey);
     inout(void)[] _aaValues(inout void* p, in size_t keysize, in size_t valuesize, const TypeInfo tiValArray) pure nothrow;
     inout(void)[] _aaKeys(inout void* p, in size_t keysize, const TypeInfo tiKeyArray) pure nothrow;
@@ -2852,40 +3048,71 @@ void* aaLiteral(Key, Value)(Key[] keys, Value[] values) @trusted pure
 
 alias AssociativeArray(Key, Value) = Value[Key];
 
+/***********************************
+ * Removes all remaining keys and values from an associative array.
+ * Params:
+ *      aa =     The associative array.
+ */
 void clear(T : Value[Key], Value, Key)(T aa)
 {
     _aaClear(*cast(void **) &aa);
 }
 
+/* ditto */
 void clear(T : Value[Key], Value, Key)(T* aa)
 {
     _aaClear(*cast(void **) aa);
 }
 
+///
+@system unittest
+{
+    auto aa = ["k1": 2];
+    aa.clear;
+    assert("k1" !in aa);
+}
+
+/***********************************
+ * Reorganizes the associative array in place so that lookups are more
+ * efficient.
+ * Params:
+ *      aa =     The associative array.
+ * Returns:
+ *      The rehashed associative array.
+ */
 T rehash(T : Value[Key], Value, Key)(T aa)
 {
     _aaRehash(cast(void**)&aa, typeid(Value[Key]));
     return aa;
 }
 
+/* ditto */
 T rehash(T : Value[Key], Value, Key)(T* aa)
 {
     _aaRehash(cast(void**)aa, typeid(Value[Key]));
     return *aa;
 }
 
+/* ditto */
 T rehash(T : shared Value[Key], Value, Key)(T aa)
 {
     _aaRehash(cast(void**)&aa, typeid(Value[Key]));
     return aa;
 }
 
+/* ditto */
 T rehash(T : shared Value[Key], Value, Key)(T* aa)
 {
     _aaRehash(cast(void**)aa, typeid(Value[Key]));
     return *aa;
 }
 
+/***********************************
+ * Create a new associative array of the same size and copy the contents of the
+ * associative array into it.
+ * Params:
+ *      aa =     The associative array.
+ */
 V[K] dup(T : V[K], K, V)(T aa)
 {
     //pragma(msg, "K = ", K, ", V = ", V);
@@ -2922,9 +3149,19 @@ V[K] dup(T : V[K], K, V)(T aa)
     return result;
 }
 
+/* ditto */
 V[K] dup(T : V[K], K, V)(T* aa)
 {
     return (*aa).dup;
+}
+
+///
+@safe unittest
+{
+    auto aa = ["k1": 2];
+    auto a2 = aa.dup;
+    aa["k2"] = 3;
+    assert("k2" !in a2);
 }
 
 // this should never be made public.
@@ -2938,6 +3175,13 @@ private AARange _aaToRange(T: V[K], K, V)(ref T aa) pure nothrow @nogc @safe
     return _aaRange(() @trusted { return cast(void*)realAA; } ());
 }
 
+/***********************************
+ * Returns a forward range over the keys of the associative array.
+ * Params:
+ *      aa =     The associative array.
+ * Returns:
+ *      A forward range.
+ */
 auto byKey(T : V[K], K, V)(T aa) pure nothrow @nogc @safe
 {
     import core.internal.traits : substInout;
@@ -2960,11 +3204,30 @@ auto byKey(T : V[K], K, V)(T aa) pure nothrow @nogc @safe
     return Result(_aaToRange(aa));
 }
 
+/* ditto */
 auto byKey(T : V[K], K, V)(T* aa) pure nothrow @nogc
 {
     return (*aa).byKey();
 }
 
+///
+@safe unittest
+{
+    auto dict = [1: 0, 2: 0];
+    int sum;
+    foreach (v; dict.byKey)
+        sum += v;
+
+    assert(sum == 3);
+}
+
+/***********************************
+ * Returns a forward range over the values of the associative array.
+ * Params:
+ *      aa =     The associative array.
+ * Returns:
+ *      A forward range.
+ */
 auto byValue(T : V[K], K, V)(T aa) pure nothrow @nogc @safe
 {
     import core.internal.traits : substInout;
@@ -2987,11 +3250,30 @@ auto byValue(T : V[K], K, V)(T aa) pure nothrow @nogc @safe
     return Result(_aaToRange(aa));
 }
 
+/* ditto */
 auto byValue(T : V[K], K, V)(T* aa) pure nothrow @nogc
 {
     return (*aa).byValue();
 }
 
+///
+@safe unittest
+{
+    auto dict = ["k1": 1, "k2": 2];
+    int sum;
+    foreach (v; dict.byValue)
+        sum += v;
+
+    assert(sum == 3);
+}
+
+/***********************************
+ * Returns a forward range over the key value pairs of the associative array.
+ * Params:
+ *      aa =     The associative array.
+ * Returns:
+ *      A forward range.
+ */
 auto byKeyValue(T : V[K], K, V)(T aa) pure nothrow @nogc @safe
 {
     import core.internal.traits : substInout;
@@ -3015,12 +3297,12 @@ auto byKeyValue(T : V[K], K, V)(T aa) pure nothrow @nogc @safe
                 {
                     auto p = (() @trusted => cast(substInout!K*) keyp) ();
                     return *p;
-                };
+                }
                 @property ref value() inout
                 {
                     auto p = (() @trusted => cast(substInout!V*) valp) ();
                     return *p;
-                };
+                }
             }
             return Pair(_aaRangeFrontKey(r),
                         _aaRangeFrontValue(r));
@@ -3032,11 +3314,31 @@ auto byKeyValue(T : V[K], K, V)(T aa) pure nothrow @nogc @safe
     return Result(_aaToRange(aa));
 }
 
+/* ditto */
 auto byKeyValue(T : V[K], K, V)(T* aa) pure nothrow @nogc
 {
     return (*aa).byKeyValue();
 }
 
+///
+@safe unittest
+{
+    auto dict = ["k1": 1, "k2": 2];
+    int sum;
+    foreach (e; dict.byKeyValue)
+        sum += e.value;
+
+    assert(sum == 3);
+}
+
+/***********************************
+ * Returns a dynamic array, the elements of which are the keys in the
+ * associative array.
+ * Params:
+ *      aa =     The associative array.
+ * Returns:
+ *      A dynamic array.
+ */
 Key[] keys(T : Value[Key], Value, Key)(T aa) @property
 {
     auto a = cast(void[])_aaKeys(cast(inout(void)*)aa, Key.sizeof, typeid(Key[]));
@@ -3045,11 +3347,31 @@ Key[] keys(T : Value[Key], Value, Key)(T aa) @property
     return res;
 }
 
+/* ditto */
 Key[] keys(T : Value[Key], Value, Key)(T *aa) @property
 {
     return (*aa).keys;
 }
 
+///
+@system unittest
+{
+    auto aa = [1: "v1", 2: "v2"];
+    int sum;
+    foreach (k; aa.keys)
+        sum += k;
+
+    assert(sum == 3);
+}
+
+/***********************************
+ * Returns a dynamic array, the elements of which are the values in the
+ * associative array.
+ * Params:
+ *      aa =     The associative array.
+ * Returns:
+ *      A dynamic array.
+ */
 Value[] values(T : Value[Key], Value, Key)(T aa) @property
 {
     auto a = cast(void[])_aaValues(cast(inout(void)*)aa, Key.sizeof, Value.sizeof, typeid(Value[]));
@@ -3058,45 +3380,40 @@ Value[] values(T : Value[Key], Value, Key)(T aa) @property
     return res;
 }
 
+/* ditto */
 Value[] values(T : Value[Key], Value, Key)(T *aa) @property
 {
     return (*aa).values;
 }
 
-unittest
+///
+@system unittest
 {
-    static struct T
-    {
-        byte b;
-        static size_t count;
-        this(this) { ++count; }
-    }
-    T[int] aa;
-    T t;
-    aa[0] = t;
-    aa[1] = t;
-    assert(T.count == 2);
-    auto vals = aa.values;
-    assert(vals.length == 2);
-    assert(T.count == 4);
+    auto aa = ["k1": 1, "k2": 2];
+    int sum;
+    foreach (e; aa.values)
+        sum += e;
 
-    T.count = 0;
-    int[T] aa2;
-    aa2[t] = 0;
-    assert(T.count == 1);
-    aa2[t] = 1;
-    assert(T.count == 1);
-    auto keys = aa2.keys;
-    assert(keys.length == 1);
-    assert(T.count == 2);
+    assert(sum == 3);
 }
 
+/***********************************
+ * Looks up key; if it exists returns corresponding value else evaluates and
+ * returns defaultValue.
+ * Params:
+ *      aa =     The associative array.
+ *      key =    The key.
+ *      defaultValue = The default value.
+ * Returns:
+ *      The value.
+ */
 inout(V) get(K, V)(inout(V[K]) aa, K key, lazy inout(V) defaultValue)
 {
     auto p = key in aa;
     return p ? *p : defaultValue;
 }
 
+/* ditto */
 inout(V) get(K, V)(inout(V[K])* aa, K key, lazy inout(V) defaultValue)
 {
     return (*aa).get(key, defaultValue);
@@ -3104,324 +3421,155 @@ inout(V) get(K, V)(inout(V[K])* aa, K key, lazy inout(V) defaultValue)
 
 @safe unittest
 {
-    int[string] aa;
-    int a;
-    foreach (val; aa.byKeyValue)
+    auto aa = ["k1": 1];
+    assert(aa.get("k1", 0) == 1);
+    assert(aa.get("k2", 0) == 0);
+}
+
+/***********************************
+ * Looks up key; if it exists returns corresponding value else evaluates
+ * value, adds it to the associative array and returns it.
+ * Params:
+ *      aa =     The associative array.
+ *      key =    The key.
+ *      value =  The required value.
+ * Returns:
+ *      The value.
+ */
+ref V require(K, V)(ref V[K] aa, K key, lazy V value = V.init)
+{
+    bool found;
+    // if key is @safe-ly copyable, `require` can infer @safe
+    static if (isSafeCopyable!K)
     {
-        ++aa[val.key];
-        a = val.value;
+        auto p = () @trusted
+        {
+            return cast(V*) _aaGetX(cast(void**) &aa, typeid(V[K]), V.sizeof, &key, found);
+        } ();
     }
+    else
+    {
+        auto p = cast(V*) _aaGetX(cast(void**) &aa, typeid(V[K]), V.sizeof, &key, found);
+    }
+    return found ? *p : (*p = value);
+}
+
+///
+@safe unittest
+{
+    auto aa = ["k1": 1];
+    assert(aa.require("k1", 0) == 1);
+    assert(aa.require("k2", 0) == 0);
+    assert(aa["k2"] == 0);
+}
+
+// Constraints for aa update. Delegates, Functions or Functors (classes that
+// provide opCall) are allowed. See unittest for an example.
+private
+{
+    template isCreateOperation(C, V)
+    {
+        static if (is(C : V delegate()) || is(C : V function()))
+            enum bool isCreateOperation = true;
+        else static if (isCreateOperation!(typeof(&C.opCall), V))
+            enum bool isCreateOperation = true;
+        else
+            enum bool isCreateOperation = false;
+    }
+
+    template isUpdateOperation(U, V)
+    {
+        static if (is(U : V delegate(ref V)) || is(U : V function(ref V)))
+            enum bool isUpdateOperation = true;
+        else static if (isUpdateOperation!(typeof(&U.opCall), V))
+            enum bool isUpdateOperation = true;
+        else
+            enum bool isUpdateOperation = false;
+    }
+}
+
+// Tests whether T can be @safe-ly copied. Use a union to exclude destructor from the test.
+private enum bool isSafeCopyable(T) = is(typeof(() @safe { union U { T x; } T *x; auto u = U(*x); }));
+
+/***********************************
+ * Looks up key; if it exists applies the update delegate else evaluates the
+ * create delegate and adds it to the associative array
+ * Params:
+ *      aa =     The associative array.
+ *      key =    The key.
+ *      create = The delegate to apply on create.
+ *      update = The delegate to apply on update.
+ */
+void update(K, V, C, U)(ref V[K] aa, K key, scope C create, scope U update)
+if (isCreateOperation!(C, V) && isUpdateOperation!(U, V))
+{
+    bool found;
+    // if key is @safe-ly copyable, `update` may infer @safe
+    static if (isSafeCopyable!K)
+    {
+        auto p = () @trusted
+        {
+            return cast(V*) _aaGetX(cast(void**) &aa, typeid(V[K]), V.sizeof, &key, found);
+        } ();
+    }
+    else
+    {
+        auto p = cast(V*) _aaGetX(cast(void**) &aa, typeid(V[K]), V.sizeof, &key, found);
+    }
+    if (!found)
+        *p = create();
+    else
+        *p = update(*p);
+}
+
+///
+@system unittest
+{
+    auto aa = ["k1": 1];
+
+    aa.update("k1", {
+        return -1; // create (won't be executed
+    }, (ref int v) {
+        return v + 1; // update
+    });
+    assert(aa["k1"] == 2);
+
+    aa.update("k2", {
+        return 0; // create
+    }, (ref int v) {
+        return -1; // update (won't be executed)
+    });
+    assert(aa["k2"] == 0);
 }
 
 unittest
 {
-    static assert(!__traits(compiles,
-        () @safe {
-            struct BadValue
-            {
-                int x;
-                this(this) @safe { *(cast(ubyte*)(null) + 100000) = 5; } // not @safe
-                alias x this;
-            }
-
-            BadValue[int] aa;
-            () @safe { auto x = aa.byKey.front; } ();
-        }
-    ));
-}
-
-pure nothrow unittest
-{
-    int[int] a;
-    foreach (i; a.byKey)
-    {
-        assert(false);
-    }
-    foreach (i; a.byValue)
-    {
-        assert(false);
-    }
-}
-
-pure /*nothrow */ unittest
-{
-    auto a = [ 1:"one", 2:"two", 3:"three" ];
-    auto b = a.dup;
-    assert(b == [ 1:"one", 2:"two", 3:"three" ]);
-
-    int[] c;
-    foreach (k; a.byKey)
-    {
-        c ~= k;
-    }
-
-    assert(c.length == 3);
-    assert(c[0] == 1 || c[1] == 1 || c[2] == 1);
-    assert(c[0] == 2 || c[1] == 2 || c[2] == 2);
-    assert(c[0] == 3 || c[1] == 3 || c[2] == 3);
-}
-
-pure nothrow unittest
-{
-    // test for bug 5925
-    const a = [4:0];
-    const b = [4:0];
-    assert(a == b);
-}
-
-pure nothrow unittest
-{
-    // test for bug 9052
-    static struct Json {
-        Json[string] aa;
-        void opAssign(Json) {}
-        size_t length() const { return aa.length; }
-        // This length() instantiates AssociativeArray!(string, const(Json)) to call AA.length(), and
-        // inside ref Slot opAssign(Slot p); (which is automatically generated by compiler in Slot),
-        // this.value = p.value would actually fail, because both side types of the assignment
-        // are const(Json).
-    }
-}
-
-pure nothrow unittest
-{
-    // test for bug 8583: ensure Slot and aaA are on the same page wrt value alignment
-    string[byte]    aa0 = [0: "zero"];
-    string[uint[3]] aa1 = [[1,2,3]: "onetwothree"];
-    ushort[uint[3]] aa2 = [[9,8,7]: 987];
-    ushort[uint[4]] aa3 = [[1,2,3,4]: 1234];
-    string[uint[5]] aa4 = [[1,2,3,4,5]: "onetwothreefourfive"];
-
-    assert(aa0.byValue.front == "zero");
-    assert(aa1.byValue.front == "onetwothree");
-    assert(aa2.byValue.front == 987);
-    assert(aa3.byValue.front == 1234);
-    assert(aa4.byValue.front == "onetwothreefourfive");
-}
-
-pure nothrow unittest
-{
-    // test for bug 10720
-    static struct NC
-    {
-        @disable this(this) { }
-    }
-
-    NC[string] aa;
-    static assert(!is(aa.nonExistingField));
-}
-
-pure nothrow unittest
-{
-    // bug 5842
-    string[string] test = null;
-    test["test1"] = "test1";
-    test.remove("test1");
-    test.rehash;
-    test["test3"] = "test3"; // causes divide by zero if rehash broke the AA
-}
-
-pure nothrow unittest
-{
-    string[] keys = ["a", "b", "c", "d", "e", "f"];
-
-    // Test forward range capabilities of byKey
-    {
-        int[string] aa;
-        foreach (key; keys)
-            aa[key] = 0;
-
-        auto keyRange = aa.byKey();
-        auto savedKeyRange = keyRange.save;
-
-        // Consume key range once
-        size_t keyCount = 0;
-        while (!keyRange.empty)
-        {
-            aa[keyRange.front]++;
-            keyCount++;
-            keyRange.popFront();
-        }
-
-        foreach (key; keys)
-        {
-            assert(aa[key] == 1);
-        }
-        assert(keyCount == keys.length);
-
-        // Verify it's possible to iterate the range the second time
-        keyCount = 0;
-        while (!savedKeyRange.empty)
-        {
-            aa[savedKeyRange.front]++;
-            keyCount++;
-            savedKeyRange.popFront();
-        }
-
-        foreach (key; keys)
-        {
-            assert(aa[key] == 2);
-        }
-        assert(keyCount == keys.length);
-    }
-
-    // Test forward range capabilities of byValue
-    {
-        size_t[string] aa;
-        foreach (i; 0 .. keys.length)
-        {
-            aa[keys[i]] = i;
-        }
-
-        auto valRange = aa.byValue();
-        auto savedValRange = valRange.save;
-
-        // Consume value range once
-        int[] hasSeen;
-        hasSeen.length = keys.length;
-        while (!valRange.empty)
-        {
-            assert(hasSeen[valRange.front] == 0);
-            hasSeen[valRange.front]++;
-            valRange.popFront();
-        }
-
-        foreach (sawValue; hasSeen) { assert(sawValue == 1); }
-
-        // Verify it's possible to iterate the range the second time
-        hasSeen = null;
-        hasSeen.length = keys.length;
-        while (!savedValRange.empty)
-        {
-            assert(!hasSeen[savedValRange.front]);
-            hasSeen[savedValRange.front] = true;
-            savedValRange.popFront();
-        }
-
-        foreach (sawValue; hasSeen) { assert(sawValue); }
-    }
-}
-
-pure nothrow unittest
-{
-    // expanded test for 5842: increase AA size past the point where the AA
-    // stops using binit, in order to test another code path in rehash.
-    int[int] aa;
-    foreach (int i; 0 .. 32)
-        aa[i] = i;
-    foreach (int i; 0 .. 32)
-        aa.remove(i);
-    aa.rehash;
-    aa[1] = 1;
-}
-
-pure nothrow unittest
-{
-    // bug 13078
-    shared string[][string] map;
-    map.rehash;
-}
-
-pure nothrow unittest
-{
-    // bug 11761: test forward range functionality
-    auto aa = ["a": 1];
-
-    void testFwdRange(R, T)(R fwdRange, T testValue)
-    {
-        assert(!fwdRange.empty);
-        assert(fwdRange.front == testValue);
-        static assert(is(typeof(fwdRange.save) == typeof(fwdRange)));
-
-        auto saved = fwdRange.save;
-        fwdRange.popFront();
-        assert(fwdRange.empty);
-
-        assert(!saved.empty);
-        assert(saved.front == testValue);
-        saved.popFront();
-        assert(saved.empty);
-    }
-
-    testFwdRange(aa.byKey, "a");
-    testFwdRange(aa.byValue, 1);
-    //testFwdRange(aa.byPair, tuple("a", 1));
-}
-
-unittest
-{
-    // Issue 9119
-    int[string] aa;
-    assert(aa.byKeyValue.empty);
-
-    aa["a"] = 1;
-    aa["b"] = 2;
-    aa["c"] = 3;
-
-    auto pairs = aa.byKeyValue;
-
-    auto savedPairs = pairs.save;
-    size_t count = 0;
-    while (!pairs.empty)
-    {
-        assert(pairs.front.key in aa);
-        assert(pairs.front.value == aa[pairs.front.key]);
-        count++;
-        pairs.popFront();
-    }
-    assert(count == aa.length);
-
-    // Verify that saved range can iterate over the AA again
-    count = 0;
-    while (!savedPairs.empty)
-    {
-        assert(savedPairs.front.key in aa);
-        assert(savedPairs.front.value == aa[savedPairs.front.key]);
-        count++;
-        savedPairs.popFront();
-    }
-    assert(count == aa.length);
-}
-
-unittest
-{
-    // Verify iteration with const.
-    auto aa = [1:2, 3:4];
-    foreach (const t; aa.byKeyValue)
-    {
-        auto k = t.key;
-        auto v = t.value;
-    }
-}
-
-unittest
-{
-    // test for bug 14626
     static struct S
     {
-        string[string] aa;
-        inout(string) key() inout { return aa.byKey().front; }
-        inout(string) val() inout { return aa.byValue().front; }
-        auto keyval() inout { return aa.byKeyValue().front; }
+        int x;
+    @nogc nothrow pure:
+        this(this) @system {}
+
+    @safe const:
+        // stubs
+        bool opEquals(S rhs) { assert(0); }
+        size_t toHash() { assert(0); }
     }
 
-    S s = S(["a":"b"]);
-    assert(s.key() == "a");
-    assert(s.val() == "b");
-    assert(s.keyval().key == "a");
-    assert(s.keyval().value == "b");
+    int[string] aai;
+    static assert(is(typeof(() @safe { aai.require("a", 1234); })));
+    static assert(is(typeof(() @safe { aai.update("a", { return 1234; }, (ref int x) { x++; return x; }); })));
 
-    void testInoutKeyVal(inout(string) key)
-    {
-        inout(string)[typeof(key)] aa;
+    S[string] aas;
+    static assert(is(typeof(() { aas.require("a", S(1234)); })));
+    static assert(is(typeof(() { aas.update("a", { return S(1234); }, (ref S s) { s.x++; return s; }); })));
+    static assert(!is(typeof(() @safe { aas.update("a", { return S(1234); }, (ref S s) { s.x++; return s; }); })));
 
-        foreach (i; aa.byKey()) {}
-        foreach (i; aa.byValue()) {}
-        foreach (i; aa.byKeyValue()) {}
-    }
-
-    const int[int] caa;
-    static assert(is(typeof(caa.byValue().front) == const int));
+    int[S] aais;
+    static assert(is(typeof(() { aais.require(S(1234), 1234); })));
+    static assert(is(typeof(() { aais.update(S(1234), { return 1234; }, (ref int x) { x++; return x; }); })));
+    static assert(!is(typeof(() @safe { aais.require(S(1234), 1234); })));
+    static assert(!is(typeof(() @safe { aais.update(S(1234), { return 1234; }, (ref int x) { x++; return x; }); })));
 }
 
 private void _destructRecurse(E, size_t n)(ref E[n] arr)
@@ -3486,7 +3634,7 @@ void _postblitRecurse(E, size_t n)(ref E[n] arr)
 
     struct InnerMiddle {}
 
-    version(none) // https://issues.dlang.org/show_bug.cgi?id=14242
+    version (none) // https://issues.dlang.org/show_bug.cgi?id=14242
     struct InnerElement
     {
         static char counter = '1';
@@ -3520,7 +3668,7 @@ void _postblitRecurse(E, size_t n)(ref E[n] arr)
         char[] s;
         InnerTop top;
         InnerMiddle middle;
-        version(none) InnerElement[3] array; // https://issues.dlang.org/show_bug.cgi?id=14242
+        version (none) InnerElement[3] array; // https://issues.dlang.org/show_bug.cgi?id=14242
         int a;
         InnerBottom bottom;
         ~this() @safe nothrow pure { order ~= "destroy outer"; }
@@ -3652,7 +3800,7 @@ unittest
         this(this)
         {
             order ~= "copy inner #" ~ id;
-            if(id == '2')
+            if (id == '2')
                 throw new FailedPostblitException();
         }
 
@@ -3688,15 +3836,15 @@ unittest
     auto outer = Outer('1', '2', '3');
 
     try _postblitRecurse(outer);
-    catch(FailedPostblitException) {}
-    catch(Exception) assert(false);
+    catch (FailedPostblitException) {}
+    catch (Exception) assert(false);
 
     auto postblitRecurseOrder = order;
     order = null;
 
     try auto copy = outer;
-    catch(FailedPostblitException) {}
-    catch(Exception) assert(false);
+    catch (FailedPostblitException) {}
+    catch (Exception) assert(false);
 
     assert(postblitRecurseOrder == order);
     order = null;
@@ -3704,25 +3852,17 @@ unittest
     Outer[3] arr = [Outer('1', '1', '1'), Outer('1', '2', '3'), Outer('3', '3', '3')];
 
     try _postblitRecurse(arr);
-    catch(FailedPostblitException) {}
-    catch(Exception) assert(false);
+    catch (FailedPostblitException) {}
+    catch (Exception) assert(false);
 
     postblitRecurseOrder = order;
     order = null;
 
     try auto arrCopy = arr;
-    catch(FailedPostblitException) {}
-    catch(Exception) assert(false);
+    catch (FailedPostblitException) {}
+    catch (Exception) assert(false);
 
     assert(postblitRecurseOrder == order);
-}
-
-version (unittest)
-{
-    private bool isnan(float x)
-    {
-        return x != x;
-    }
 }
 
 private
@@ -3746,6 +3886,7 @@ private
 {
     return _d_arraysetcapacity(typeid(T[]), 0, cast(void[]*)&arr);
 }
+
 ///
 @safe unittest
 {
@@ -3781,6 +3922,7 @@ size_t reserve(T)(ref T[] arr, size_t newcapacity) pure nothrow @trusted
 {
     return _d_arraysetcapacity(typeid(T[]), newcapacity, cast(void[]*)&arr);
 }
+
 ///
 unittest
 {
@@ -3824,11 +3966,12 @@ unittest
  * Returns:
  *   The input is returned.
  */
-auto ref inout(T[]) assumeSafeAppend(T)(auto ref inout(T[]) arr) nothrow
+auto ref inout(T[]) assumeSafeAppend(T)(auto ref inout(T[]) arr) nothrow @system
 {
     _d_arrayshrinkfit(typeid(T[]), *(cast(void[]*)&arr));
     return arr;
 }
+
 ///
 unittest
 {
@@ -3855,7 +3998,7 @@ unittest
     assert(newcap >= 2000);
     assert(newcap == arr.capacity);
     auto ptr = arr.ptr;
-    foreach(i; 0..2000)
+    foreach (i; 0..2000)
         arr ~= i;
     assert(ptr == arr.ptr);
     arr = arr[0..1];
@@ -3925,20 +4068,41 @@ version (none)
     }
 }
 
-/**
-Calculates the hash value of $(D arg) with $(D seed) initial value.
-The result may not be equal to `typeid(T).getHash(&arg)`.
-
-Params:
-    arg = argument to calculate the hash value of
-    seed = the $(D seed) value (may be used for hash chaining)
-
-Return: calculated hash value of $(D arg)
-*/
-size_t hashOf(T)(auto ref T arg, size_t seed = 0)
+version (D_Ddoc)
 {
-    import core.internal.hash;
-    return core.internal.hash.hashOf(arg, seed);
+    // This lets DDoc produce better documentation.
+
+    /**
+    Calculates the hash value of `arg` with an optional `seed` initial value.
+    The result might not be equal to `typeid(T).getHash(&arg)`.
+
+    Params:
+        arg = argument to calculate the hash value of
+        seed = optional `seed` value (may be used for hash chaining)
+
+    Return: calculated hash value of `arg`
+    */
+    size_t hashOf(T)(auto ref T arg, size_t seed)
+    {
+        static import core.internal.hash;
+        return core.internal.hash.hashOf(arg, seed);
+    }
+    /// ditto
+    size_t hashOf(T)(auto ref T arg)
+    {
+        static import core.internal.hash;
+        return core.internal.hash.hashOf(arg);
+    }
+
+    @safe unittest
+    {
+        auto h1 = "my.string".hashOf;
+        assert(h1 == "my.string".hashOf);
+    }
+}
+else
+{
+    public import core.internal.hash : hashOf;
 }
 
 ///
@@ -3965,14 +4129,6 @@ size_t hashOf(T)(auto ref T arg, size_t seed = 0)
             return hash;
         }
     }
-}
-
-unittest
-{
-    // Issue # 16654 / 16764
-    auto a = [1];
-    auto b = a.dup;
-    assert(hashOf(a) == hashOf(b));
 }
 
 bool _xopEquals(in void*, in void*)
@@ -4110,7 +4266,7 @@ unittest
 
         static int bug5381(immutable(T)[] s)
         {
-            switch(s)
+            switch (s)
             {
                 case "unittest":        return 1;
                 case "D_Version2":      return 2;
@@ -4141,7 +4297,7 @@ unittest
 
         static int binarySearch(immutable(T)[] s)
         {
-            switch(s)
+            switch (s)
             {
                 static foreach (i; 0 .. 16)
                 case i.stringof: return i;
@@ -4185,15 +4341,15 @@ void __switch_error()(string file = __FILE__, size_t line = __LINE__)
 private inout(TypeInfo) getElement(inout TypeInfo value) @trusted pure nothrow
 {
     TypeInfo element = cast() value;
-    for(;;)
+    for (;;)
     {
-        if(auto qualified = cast(TypeInfo_Const) element)
+        if (auto qualified = cast(TypeInfo_Const) element)
             element = qualified.base;
-        else if(auto redefined = cast(TypeInfo_Enum) element)
+        else if (auto redefined = cast(TypeInfo_Enum) element)
             element = redefined.base;
-        else if(auto staticArray = cast(TypeInfo_StaticArray) element)
+        else if (auto staticArray = cast(TypeInfo_StaticArray) element)
             element = staticArray.value;
-        else if(auto vector = cast(TypeInfo_Vector) element)
+        else if (auto vector = cast(TypeInfo_Vector) element)
             element = vector.base;
         else
             break;
@@ -4203,18 +4359,18 @@ private inout(TypeInfo) getElement(inout TypeInfo value) @trusted pure nothrow
 
 private size_t getArrayHash(in TypeInfo element, in void* ptr, in size_t count) @trusted nothrow
 {
-    if(!count)
+    if (!count)
         return 0;
 
     const size_t elementSize = element.tsize;
-    if(!elementSize)
+    if (!elementSize)
         return 0;
 
     static bool hasCustomToHash(in TypeInfo value) @trusted pure nothrow
     {
         const element = getElement(value);
 
-        if(const struct_ = cast(const TypeInfo_Struct) element)
+        if (const struct_ = cast(const TypeInfo_Struct) element)
             return !!struct_.xtoHash;
 
         return cast(const TypeInfo_Array) element
@@ -4224,56 +4380,13 @@ private size_t getArrayHash(in TypeInfo element, in void* ptr, in size_t count) 
     }
 
     import core.internal.traits : externDFunc;
-    alias hashOf = externDFunc!("rt.util.hash.hashOf",
-                                size_t function(const(void)[], size_t) @trusted pure nothrow @nogc);
-    if(!hasCustomToHash(element))
-        return hashOf(ptr[0 .. elementSize * count], 0);
+    if (!hasCustomToHash(element))
+        return hashOf(ptr[0 .. elementSize * count]);
 
     size_t hash = 0;
-    foreach(size_t i; 0 .. count)
-        hash = hash * 33 + element.getHash(ptr + i * elementSize);
+    foreach (size_t i; 0 .. count)
+        hash = hashOf(element.getHash(ptr + i * elementSize), hash);
     return hash;
-}
-
-
-// Tests ensure TypeInfo_Array.getHash  uses element hash functions instead of hashing array data
-
-unittest
-{
-    class C
-    {
-        int i;
-        this(in int i) { this.i = i; }
-        override hash_t toHash() { return 0; }
-    }
-    C[] a1 = [new C(11)], a2 = [new C(12)];
-    assert(typeid(C[]).getHash(&a1) == typeid(C[]).getHash(&a2));
-}
-
-unittest
-{
-    struct S
-    {
-        int i;
-        hash_t toHash() const @safe nothrow { return 0; }
-    }
-    S[] a1 = [S(11)], a2 = [S(12)];
-    assert(typeid(S[]).getHash(&a1) == typeid(S[]).getHash(&a2));
-}
-
-@safe unittest
-{
-    struct S
-    {
-        int i;
-    const @safe nothrow:
-        hash_t toHash() { return 0; }
-        bool opEquals(const S) { return true; }
-        int opCmp(const S) { return 0; }
-    }
-
-    int[S[]] aa = [[S(11)] : 13];
-    assert(aa[[S(12)]] == 13);
 }
 
 /// Provide the .dup array property.
@@ -4289,6 +4402,16 @@ unittest
         return _trustedDup!(T, Unconst!T)(a);
     else
         return _dup!(T, Unconst!T)(a);
+}
+
+///
+@safe unittest
+{
+    auto arr = [1, 2];
+    auto arr2 = arr.dup;
+    arr[0] = 0;
+    assert(arr == [0, 2]);
+    assert(arr2 == [1, 2]);
 }
 
 /// ditto
@@ -4321,6 +4444,15 @@ unittest
 @property immutable(T)[] idup(T:void)(const(T)[] a)
 {
     return a.dup;
+}
+
+///
+@safe unittest
+{
+    char[] arr = ['a', 'b', 'c'];
+    string s = arr.idup;
+    arr[0] = '.';
+    assert(s == "abc");
 }
 
 private U[] _trustedDup(T, U)(T[] a) @trusted
@@ -4564,4 +4696,102 @@ void __ArrayDtor(T)(T[] a)
 {
     foreach_reverse (ref T e; a)
         e.__xdtor();
+}
+
+/**
+Used by `__ArrayCast` to emit a descriptive error message.
+
+It is a template so it can be used by `__ArrayCast` in -betterC
+builds.  It is separate from `__ArrayCast` to minimize code
+bloat.
+
+Params:
+    fromType = name of the type being cast from
+    fromSize = total size in bytes of the array being cast from
+    toType   = name of the type being cast o
+    toSize   = total size in bytes of the array being cast to
+ */
+private void onArrayCastError()(string fromType, size_t fromSize, string toType, size_t toSize) @trusted
+{
+    import core.internal.string : unsignedToTempString;
+    import core.stdc.stdlib : alloca;
+
+    const(char)[][8] msgComponents =
+    [
+        "Cannot cast `"
+        , fromType
+        , "` to `"
+        , toType
+        , "`; an array of size "
+        , unsignedToTempString(fromSize)
+        , " does not align on an array of size "
+        , unsignedToTempString(toSize)
+    ];
+
+    // convert discontiguous `msgComponents` to contiguous string on the stack
+    size_t length = 0;
+    foreach (m ; msgComponents)
+        length += m.length;
+
+    auto msg = (cast(char*)alloca(length))[0 .. length];
+
+    size_t index = 0;
+    foreach (m ; msgComponents)
+        foreach (c; m)
+            msg[index++] = c;
+
+    // first argument must evaluate to `false` at compile-time to maintain memory safety in release builds
+    assert(false, msg);
+}
+
+/**
+The compiler lowers expressions of `cast(TTo[])TFrom[]` to
+this implementation.
+
+Params:
+    from = the array to reinterpret-cast
+
+Returns:
+    `from` reinterpreted as `TTo[]`
+ */
+TTo[] __ArrayCast(TFrom, TTo)(TFrom[] from) @nogc pure @trusted
+{
+    const fromSize = from.length * TFrom.sizeof;
+    const toLength = fromSize / TTo.sizeof;
+
+    if ((fromSize % TTo.sizeof) != 0)
+    {
+        onArrayCastError(TFrom.stringof, fromSize, TTo.stringof, toLength * TTo.sizeof);
+    }
+
+    struct Array
+    {
+        size_t length;
+        void* ptr;
+    }
+    auto a = cast(Array*)&from;
+    a.length = toLength; // jam new length
+    return *cast(TTo[]*)a;
+}
+
+@safe @nogc pure nothrow unittest
+{
+    byte[int.sizeof * 3] b = cast(byte) 0xab;
+    int[] i;
+    short[] s;
+
+    i = __ArrayCast!(byte, int)(b);
+    assert(i.length == 3);
+    foreach (v; i)
+        assert(v == cast(int) 0xabab_abab);
+
+    s = __ArrayCast!(byte, short)(b);
+    assert(s.length == 6);
+    foreach (v; s)
+        assert(v == cast(short) 0xabab);
+
+    s = __ArrayCast!(int, short)(i);
+    assert(s.length == 6);
+    foreach (v; s)
+        assert(v == cast(short) 0xabab);
 }

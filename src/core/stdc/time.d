@@ -31,7 +31,7 @@ extern (C):
 nothrow:
 @nogc:
 
-version( Windows )
+version (Windows)
 {
     ///
     struct tm
@@ -47,7 +47,7 @@ version( Windows )
         int     tm_isdst;   /// Daylight Saving Time flag
     }
 }
-else version( Posix )
+else version (Posix)
 {
     ///
     struct tm
@@ -66,11 +66,11 @@ else version( Posix )
     }
 }
 
-version ( Posix )
+version (Posix)
 {
     public import core.sys.posix.sys.types : time_t, clock_t;
 }
-else version ( Windows )
+else version (Windows)
 {
     ///
     alias c_long time_t;
@@ -79,42 +79,47 @@ else version ( Windows )
 }
 
 ///
-version( Windows )
+version (Windows)
 {
     enum clock_t CLOCKS_PER_SEC = 1000;
     clock_t clock();
 }
-else version( OSX )
+else version (OSX)
 {
-    enum clock_t CLOCKS_PER_SEC = 100;
+    enum clock_t CLOCKS_PER_SEC = 1_000_000; // was 100 until OSX 10.4/10.5
     version (X86)
         extern (C) pragma(mangle, "clock$UNIX2003") clock_t clock();
     else
         clock_t clock();
 }
-else version( Darwin ) // other Darwins (iOS, TVOS, WatchOS)
+else version (Darwin) // other Darwins (iOS, TVOS, WatchOS)
 {
     enum clock_t CLOCKS_PER_SEC = 1_000_000;
     clock_t clock();
 }
-else version( FreeBSD )
+else version (FreeBSD)
 {
     enum clock_t CLOCKS_PER_SEC = 128;
     clock_t clock();
 }
-else version( NetBSD )
+else version (NetBSD)
 {
     enum clock_t CLOCKS_PER_SEC = 100;
     clock_t clock();
 }
-else version( OpenBSD )
+else version (OpenBSD)
 {
     enum clock_t CLOCKS_PER_SEC = 100;
     clock_t clock();
 }
-else version( DragonFlyBSD )
+else version (DragonFlyBSD)
 {
     enum clock_t CLOCKS_PER_SEC = 128;
+    clock_t clock();
+}
+else version (Solaris)
+{
+    enum clock_t CLOCKS_PER_SEC = 1_000_000;
     clock_t clock();
 }
 else version (CRuntime_Glibc)
@@ -143,72 +148,73 @@ else
 }
 
 ///
-double  difftime(time_t time1, time_t time0);
+pure double  difftime(time_t time1, time_t time0); // MT-Safe
 ///
-time_t  mktime(tm* timeptr);
+@system time_t  mktime(scope tm* timeptr); // @system: MT-Safe env locale
 ///
-time_t  time(time_t* timer);
-///
-char*   asctime(in tm* timeptr);
-///
-char*   ctime(in time_t* timer);
-///
-tm*     gmtime(in time_t* timer);
-///
-tm*     localtime(in time_t* timer);
-///
-@system size_t  strftime(char* s, size_t maxsize, in char* format, in tm* timeptr);
+time_t  time(scope time_t* timer);
 
-version( Windows )
+///
+@system char*   asctime(const scope tm* timeptr); // @system: MT-Unsafe race:asctime locale
+///
+@system char*   ctime(const scope time_t* timer); // @system: MT-Unsafe race:tmbuf race:asctime env locale
+///
+@system tm*     gmtime(const scope time_t* timer); // @system: MT-Unsafe race:tmbuf env locale
+///
+@system tm*     localtime(const scope time_t* timer); // @system: MT-Unsafe race:tmbuf env locale
+///
+@system size_t  strftime(scope char* s, size_t maxsize, const scope char* format, const scope tm* timeptr); // @system: MT-Safe env locale
+
+version (Windows)
 {
     ///
     void  tzset();                           // non-standard
     ///
     void  _tzset();                          // non-standard
     ///
-    @system char* _strdate(char* s);                 // non-standard
+    @system char* _strdate(return scope char* s);                 // non-standard
     ///
-    @system char* _strtime(char* s);                 // non-standard
+    @system char* _strtime(return scope char* s);                 // non-standard
 
     ///
     extern __gshared const(char)*[2] tzname; // non-standard
 }
-else version( Darwin )
+else version (Darwin)
 {
     ///
     void tzset();                            // non-standard
     ///
     extern __gshared const(char)*[2] tzname; // non-standard
 }
-else version( CRuntime_Glibc )
+else version (CRuntime_Glibc)
 {
     ///
     void tzset();                            // non-standard
     ///
     extern __gshared const(char)*[2] tzname; // non-standard
 }
-else version( FreeBSD )
+else version (FreeBSD)
 {
     ///
     void tzset();                            // non-standard
     ///
     extern __gshared const(char)*[2] tzname; // non-standard
 }
-else version( NetBSD )
+else version (NetBSD)
 {
     ///
     void tzset();                            // non-standard
     ///
     extern __gshared const(char)*[2] tzname; // non-standard
 }
-else version( OpenBSD )
+else version (OpenBSD)
 {
     ///
     void tzset();                            // non-standard
     ///
     extern __gshared const(char)*[2] tzname; // non-standard
 }
-else version( DragonFlyBSD )
+else version (DragonFlyBSD)
 {
     ///
     void tzset();                            // non-standard
@@ -222,21 +228,21 @@ else version (Solaris)
     ///
     extern __gshared const(char)*[2] tzname;
 }
-else version( CRuntime_Bionic )
+else version (CRuntime_Bionic)
 {
     ///
     void tzset();
     ///
     extern __gshared const(char)*[2] tzname;
 }
-else version( CRuntime_Musl )
+else version (CRuntime_Musl)
 {
     ///
     void tzset();                            // non-standard
     ///
     extern __gshared const(char)*[2] tzname; // non-standard
 }
-else version( CRuntime_UClibc )
+else version (CRuntime_UClibc)
 {
     ///
     void tzset();

@@ -146,11 +146,10 @@ private:
 
     static hash_t hashOf(in ref Key key) @trusted
     {
-        import rt.util.hash : hashOf;
         static if (is(Key U : U[]))
-            return hashOf(key, 0);
+            return .hashOf(key, 0);
         else
-            return hashOf((&key)[0 .. 1], 0);
+            return .hashOf((&key)[0 .. 1], 0);
     }
 
     @property hash_t mask() const
@@ -231,21 +230,21 @@ unittest
 {
     HashTab!(int, int) tab;
 
-    foreach(i; 0 .. 100)
+    foreach (i; 0 .. 100)
         tab[i] = 100 - i;
 
-    foreach(i; 0 .. 100)
+    foreach (i; 0 .. 100)
         assert(tab[i] == 100 - i);
 
     foreach (k, v; tab)
         assert(v == 100 - k);
 
-    foreach(i; 0 .. 50)
+    foreach (i; 0 .. 50)
         tab.remove(2 * i);
 
     assert(tab.length == 50);
 
-    foreach(i; 0 .. 50)
+    foreach (i; 0 .. 50)
         assert(tab[2 * i + 1] == 100 - 2 * i - 1);
 
     assert(tab.length == 50);

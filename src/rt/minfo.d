@@ -125,7 +125,7 @@ struct ModuleGroup
                     break;
             distloop:
                 // search for next (previous) module in cycle.
-                foreach (int m, d; distance)
+                foreach (m, d; distance)
                 {
                     if (d == curdist)
                     {
@@ -177,7 +177,7 @@ struct ModuleGroup
 
         auto onCycle = OnCycle.abort;
 
-        switch(cycleHandling) with(OnCycle)
+        switch (cycleHandling) with(OnCycle)
         {
         case "deprecate":
             onCycle = deprecate;
@@ -274,8 +274,8 @@ struct ModuleGroup
         // free all the edges after we are done
         scope(exit)
         {
-            foreach(e; edges)
-                if(e.ptr)
+            foreach (e; edges)
+                if (e.ptr)
                     .free(e.ptr);
             .free(edges.ptr);
         }
@@ -287,7 +287,7 @@ struct ModuleGroup
             else
                 enum EOL = "\n";
 
-            sink("Cyclic dependency between module ");
+            sink("Cyclic dependency between module constructors/destructors of ");
             sink(_modules[sourceIdx].name);
             sink(" and ");
             sink(_modules[cycleIdx].name);
@@ -354,11 +354,11 @@ struct ModuleGroup
                             if (bt(ctorstart, midx))
                             {
                                 // was already started, this is a cycle.
-                                final switch(onCycle) with(OnCycle)
+                                final switch (onCycle) with(OnCycle)
                                 {
                                 case deprecate:
                                     // check with old algorithm
-                                    if(sortCtorsOld(edges))
+                                    if (sortCtorsOld(edges))
                                     {
                                         // unwind to print deprecation message.
                                         return false;   // deprecated cycle error
@@ -470,7 +470,7 @@ struct ModuleGroup
             // pre-allocate enough space to hold all modules.
             ctors = (cast(immutable(ModuleInfo)**).malloc(len * (void*).sizeof));
             ctoridx = 0;
-            foreach (int idx, m; _modules)
+            foreach (idx, m; _modules)
             {
                 if (m.flags & relevantFlags)
                 {
@@ -582,8 +582,8 @@ struct ModuleGroup
         }
 
         // initialize the initial edges
-        foreach (int i, ref v; initialEdges)
-            v = i;
+        foreach (i, ref v; initialEdges)
+            v = cast(int)i;
 
         bool sort(ref immutable(ModuleInfo)*[] ctors, uint mask)
         {
@@ -702,10 +702,10 @@ struct ModuleGroup
         if (result) // no cycle
         {
             // fall back to original ordering as part of the deprecation.
-            if(_ctors.ptr)
+            if (_ctors.ptr)
                 .free(_ctors.ptr);
             _ctors = _ctors2;
-            if(_tlsctors.ptr)
+            if (_tlsctors.ptr)
                 .free(_tlsctors.ptr);
             _tlsctors = _tlsctors2;
         }
