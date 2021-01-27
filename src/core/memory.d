@@ -139,13 +139,14 @@ private
 
     extern (C) BlkInfo_ gc_query( void* p ) pure nothrow;
     extern (C) GC.Stats gc_stats ( ) nothrow @nogc;
+    extern (C) GC.ProfileStats gc_profileStats ( ) nothrow @nogc @safe;
 
-    extern (C) void gc_addRoot( in void* p ) nothrow @nogc;
-    extern (C) void gc_addRange( in void* p, size_t sz, const TypeInfo ti = null ) nothrow @nogc;
+    extern (C) void gc_addRoot(const void* p ) nothrow @nogc;
+    extern (C) void gc_addRange(const void* p, size_t sz, const TypeInfo ti = null ) nothrow @nogc;
 
-    extern (C) void gc_removeRoot( in void* p ) nothrow @nogc;
-    extern (C) void gc_removeRange( in void* p ) nothrow @nogc;
-    extern (C) void gc_runFinalizers( in void[] segment );
+    extern (C) void gc_removeRoot(const void* p ) nothrow @nogc;
+    extern (C) void gc_removeRange(const void* p ) nothrow @nogc;
+    extern (C) void gc_runFinalizers( const scope void[] segment );
 
     package extern (C) bool gc_inFinalizer();
 }
@@ -168,6 +169,26 @@ struct GC
         size_t usedSize;
         /// number of free bytes on the GC heap (might only get updated after a collection)
         size_t freeSize;
+        /// number of bytes allocated for current thread since program start
+        ulong allocatedInCurrentThread;
+    }
+
+    /**
+     * Aggregation of current profile information
+     */
+    static struct ProfileStats
+    {
+        import core.time : Duration;
+        /// total number of GC cycles
+        size_t numCollections;
+        /// total time spent doing GC
+        Duration totalCollectionTime;
+        /// total time threads were paused doing GC
+        Duration totalPauseTime;
+        /// largest time threads were paused during one GC cycle
+        Duration maxPauseTime;
+        /// largest time spent doing one GC cycle
+        Duration maxCollectionTime;
     }
 
     /**
@@ -288,7 +309,7 @@ struct GC
      *  A bit field containing any bits set for the memory block referenced by
      *  p or zero on error.
      */
-    static uint getAttr( in void* p ) nothrow
+    static uint getAttr( const scope void* p ) nothrow
     {
         return getAttr(cast()p);
     }
@@ -315,7 +336,7 @@ struct GC
      *  The result of a call to getAttr after the specified bits have been
      *  set.
      */
-    static uint setAttr( in void* p, uint a ) nothrow
+    static uint setAttr( const scope void* p, uint a ) nothrow
     {
         return setAttr(cast()p, a);
     }
@@ -342,7 +363,7 @@ struct GC
      *  The result of a call to getAttr after the specified bits have been
      *  cleared.
      */
-    static uint clrAttr( in void* p, uint a ) nothrow
+    static uint clrAttr( const scope void* p, uint a ) nothrow
     {
         return clrAttr(cast()p, a);
     }
@@ -435,45 +456,54 @@ struct GC
 
 
     /**
-     * If sz is zero, the memory referenced by p will be deallocated as if
-     * by a call to free.  A new memory block of size sz will then be
-     * allocated as if by a call to malloc, or the implementation may instead
-     * resize the memory block in place.  The contents of the new memory block
-     * will be the same as the contents of the old memory block, up to the
-     * lesser of the new and old sizes.  Note that existing memory will only
-     * be freed by realloc if sz is equal to zero.  The garbage collector is
-     * otherwise expected to later reclaim the memory block if it is unused.
-     * If allocation fails, this function will call onOutOfMemory which is
-     * expected to throw an OutOfMemoryError.  If p references memory not
-     * originally allocated by this garbage collector, or if it points to the
-     * interior of a memory block, no action will be taken.  If ba is zero
-     * (the default) and p references the head of a valid, known memory block
-     * then any bits set on the current block will be set on the new block if a
-     * reallocation is required.  If ba is not zero and p references the head
-     * of a valid, known memory block then the bits in ba will replace those on
-     * the current memory block and will also be set on the new block if a
-     * reallocation is required.
+     * Extend, shrink or allocate a new block of memory keeping the contents of
+     * an existing block
+     *
+     * If `sz` is zero, the memory referenced by p will be deallocated as if
+     * by a call to `free`.
+     * If `p` is `null`, new memory will be allocated via `malloc`.
+     * If `p` is pointing to memory not allocated from the GC or to the interior
+     * of an allocated memory block, no operation is performed and null is returned.
+     *
+     * Otherwise, a new memory block of size `sz` will be allocated as if by a
+     * call to `malloc`, or the implementation may instead resize or shrink the memory
+     * block in place.
+     * The contents of the new memory block will be the same as the contents
+     * of the old memory block, up to the lesser of the new and old sizes.
+     *
+     * The caller guarantees that there are no other live pointers to the
+     * passed memory block, still it might not be freed immediately by `realloc`.
+     * The garbage collector can reclaim the memory block in a later
+     * collection if it is unused.
+     * If allocation fails, this function will throw an `OutOfMemoryError`.
+     *
+     * If `ba` is zero (the default) the attributes of the existing memory
+     * will be used for an allocation.
+     * If `ba` is not zero and no new memory is allocated, the bits in ba will
+     * replace those of the current memory block.
      *
      * Params:
-     *  p  = A pointer to the root of a valid memory block or to null.
+     *  p  = A pointer to the base of a valid memory block or to `null`.
      *  sz = The desired allocation size in bytes.
-     *  ba = A bitmask of the attributes to set on this block.
+     *  ba = A bitmask of the BlkAttr attributes to set on this block.
      *  ti = TypeInfo to describe the memory. The GC might use this information
      *       to improve scanning for pointers or to call finalizers.
      *
      * Returns:
-     *  A reference to the allocated memory on success or null if sz is
-     *  zero.  On failure, the original value of p is returned.
+     *  A reference to the allocated memory on success or `null` if `sz` is
+     *  zero or the pointer does not point to the base of an GC allocated
+     *  memory block.
      *
      * Throws:
-     *  OutOfMemoryError on allocation failure.
+     *  `OutOfMemoryError` on allocation failure.
      */
     static void* realloc( void* p, size_t sz, uint ba = 0, const TypeInfo ti = null ) pure nothrow
     {
         return gc_realloc( p, sz, ba, ti );
     }
 
-    /// Issue 13111
+    // https://issues.dlang.org/show_bug.cgi?id=13111
+    ///
     unittest
     {
         enum size1 = 1 << 11 + 1; // page in large object pool
@@ -482,7 +512,7 @@ struct GC
         auto data1 = cast(ubyte*)GC.calloc(size1);
         auto data2 = cast(ubyte*)GC.realloc(data1, size2);
 
-        BlkInfo info = query(data2);
+        GC.BlkInfo info = GC.query(data2);
         assert(info.size >= size2);
     }
 
@@ -569,7 +599,7 @@ struct GC
      * collector, if p points to the interior of a memory block, or if this
      * method is called from a finalizer, no action will be taken.  The block
      * will not be finalized regardless of whether the FINALIZE attribute is
-     * set.  If finalization is desired, use delete instead.
+     * set.  If finalization is desired, call $(REF1 destroy, object) prior to `GC.free`.
      *
      * Params:
      *  p = A pointer to the root of a valid memory block or to null.
@@ -621,7 +651,7 @@ struct GC
      * Returns:
      *  The size in bytes of the memory block referenced by p or zero on error.
      */
-    static size_t sizeOf( in void* p ) nothrow @nogc /* FIXME pure */
+    static size_t sizeOf( const scope void* p ) nothrow @nogc /* FIXME pure */
     {
         return gc_sizeOf(cast(void*)p);
     }
@@ -659,7 +689,7 @@ struct GC
      *  Information regarding the memory block referenced by p or BlkInfo.init
      *  on error.
      */
-    static BlkInfo query( in void* p ) nothrow
+    static BlkInfo query( const scope void* p ) nothrow
     {
         return gc_query(cast(void*)p);
     }
@@ -678,6 +708,15 @@ struct GC
     static Stats stats() nothrow
     {
         return gc_stats();
+    }
+
+    /**
+     * Returns runtime profile stats for currently active GC implementation
+     * See `core.memory.GC.ProfileStats` for list of available metrics.
+     */
+    static ProfileStats profileStats() nothrow @nogc @safe
+    {
+        return gc_profileStats();
     }
 
     /**
@@ -725,7 +764,7 @@ struct GC
      * }
      * ---
      */
-    static void addRoot( in void* p ) nothrow @nogc /* FIXME pure */
+    static void addRoot(const void* p ) nothrow @nogc /* FIXME pure */
     {
         gc_addRoot( p );
     }
@@ -739,7 +778,7 @@ struct GC
      * Params:
      *  p = A pointer into a GC-managed memory block or null.
      */
-    static void removeRoot( in void* p ) nothrow @nogc /* FIXME pure */
+    static void removeRoot(const void* p ) nothrow @nogc /* FIXME pure */
     {
         gc_removeRoot( p );
     }
@@ -773,7 +812,7 @@ struct GC
      * // rawMemory will be recognized on collection.
      * ---
      */
-    static void addRange( in void* p, size_t sz, const TypeInfo ti = null ) @nogc nothrow /* FIXME pure */
+    static void addRange(const void* p, size_t sz, const TypeInfo ti = null ) @nogc nothrow /* FIXME pure */
     {
         gc_addRange( p, sz, ti );
     }
@@ -788,7 +827,7 @@ struct GC
      * Params:
      *  p  = A pointer to a valid memory address or to null.
      */
-    static void removeRange( in void* p ) nothrow @nogc /* FIXME pure */
+    static void removeRange(const void* p ) nothrow @nogc /* FIXME pure */
     {
         gc_removeRange( p );
     }
@@ -804,7 +843,7 @@ struct GC
      * Params:
      *  segment = address range of a code segment.
      */
-    static void runFinalizers( in void[] segment )
+    static void runFinalizers( const scope void[] segment )
     {
         gc_runFinalizers( segment );
     }
@@ -845,12 +884,21 @@ void* pureRealloc()(void* ptr, size_t size) @system pure @nogc nothrow
     fakePureErrno = errnosave;
     return ret;
 }
+
 /// ditto
 void pureFree()(void* ptr) @system pure @nogc nothrow
 {
-    const errnosave = fakePureErrno;
-    fakePureFree(ptr);
-    fakePureErrno = errnosave;
+    version (Posix)
+    {
+        // POSIX free doesn't set errno
+        fakePureFree(ptr);
+    }
+    else
+    {
+        const errnosave = fakePureErrno;
+        fakePureFree(ptr);
+        fakePureErrno = errnosave;
+    }
 }
 
 ///
@@ -1030,7 +1078,7 @@ void __delete(T)(ref T x) @system
     {
         static if (is(E == struct))
         {
-            foreach (ref e; x)
+            foreach_reverse (ref e; x)
                 _destructRecurse(e);
         }
     }
@@ -1076,7 +1124,7 @@ unittest
     assert(GC.addrOf(cast(void*) b) == null);
     // but be careful, a still points to it
     assert(a !is null);
-    assert(GC.addrOf(cast(void*) a) !is null);
+    assert(GC.addrOf(cast(void*) a) == null); // but not a valid GC pointer
 }
 
 /// Deleting interfaces
@@ -1143,7 +1191,7 @@ unittest
     assert(GC.addrOf(b.ptr) == null);
     // but be careful, a still points to it
     assert(a !is null);
-    assert(GC.addrOf(a.ptr) !is null);
+    assert(GC.addrOf(a.ptr) == null); // but not a valid GC pointer
 }
 
 /// Deleting arrays of structs
@@ -1155,10 +1203,14 @@ unittest
         int a;
         ~this()
         {
+            assert(dtorCalled == a);
             dtorCalled++;
         }
     }
     auto arr = [A(1), A(2), A(3)];
+    arr[0].a = 2;
+    arr[1].a = 1;
+    arr[2].a = 0;
 
     assert(GC.addrOf(arr.ptr) != null);
     __delete(arr);
@@ -1213,4 +1265,55 @@ unittest
     assert(GC.addrOf(y.ptr) == null);
 }
 
+// test realloc behaviour
+unittest
+{
+    static void set(int* p, size_t size)
+    {
+        foreach (i; 0 .. size)
+            *p++ = cast(int) i;
+    }
+    static void verify(int* p, size_t size)
+    {
+        foreach (i; 0 .. size)
+            assert(*p++ == i);
+    }
+    static void test(size_t memsize)
+    {
+        int* p = cast(int*) GC.malloc(memsize * int.sizeof);
+        assert(p);
+        set(p, memsize);
+        verify(p, memsize);
 
+        int* q = cast(int*) GC.realloc(p + 16, 2 * memsize * int.sizeof);
+        assert(q == null);
+
+        int* r = cast(int*) GC.realloc(p, 5 * memsize * int.sizeof);
+        verify(r, memsize);
+        set(r, 5 * memsize);
+
+        int* s = cast(int*) GC.realloc(r, 2 * memsize * int.sizeof);
+        verify(s, 2 * memsize);
+
+        assert(GC.realloc(s, 0) == null); // free
+        assert(GC.addrOf(p) == null);
+    }
+
+    test(16);
+    test(200);
+    test(800); // spans large and small pools
+    test(1200);
+    test(8000);
+
+    void* p = GC.malloc(100);
+    assert(GC.realloc(&p, 50) == null); // non-GC pointer
+}
+
+// test GC.profileStats
+unittest
+{
+    auto stats = GC.profileStats();
+    GC.collect();
+    auto nstats = GC.profileStats();
+    assert(nstats.numCollections > stats.numCollections);
+}

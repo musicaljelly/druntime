@@ -16,10 +16,12 @@ IMPDIR=import
 
 # !!!
 # Removed release-specific flags, putting them below instead
-DFLAGS=-m$(MODEL) -conf= -dip1000 -w -Isrc -Iimport
+DFLAGS=-m$(MODEL) -conf= -dip1000 -preview=fieldwise -w -Isrc -Iimport
 # !!!
-UDFLAGS=-m$(MODEL) -conf= -O -release -dip1000 -w -Isrc -Iimport
+UDFLAGS=-m$(MODEL) -conf= -O -release -dip1000 -preview=fieldwise -w -Isrc -Iimport
 DDOCFLAGS=-conf= -c -w -o- -Isrc -Iimport -version=CoreDdoc
+
+UTFLAGS=-version=CoreUnittest -unittest
 
 CFLAGS=
 
@@ -123,7 +125,7 @@ $(DRUNTIME): $(OBJS) $(SRCS) win$(MODEL).mak
 	*$(DMD) -lib -of$(DRUNTIME) -Xfdruntime.json $(DFLAGS) $(SRCS) $(OBJS)
 
 unittest : $(SRCS) $(DRUNTIME)
-	*$(DMD) $(UDFLAGS) -L/co -unittest -ofunittest.exe -main $(SRCS) $(DRUNTIME) -debuglib=$(DRUNTIME) -defaultlib=$(DRUNTIME)
+	*$(DMD) $(UDFLAGS) -L/co $(UTFLAGS) -ofunittest.exe -main $(SRCS) $(DRUNTIME) -debuglib=$(DRUNTIME) -defaultlib=$(DRUNTIME)
 	unittest
 
 ################### tests ######################################
@@ -131,8 +133,22 @@ unittest : $(SRCS) $(DRUNTIME)
 test_aa:
 	$(DMD) -m$(MODEL) -conf= -Isrc -defaultlib=$(DRUNTIME) -run test\aa\src\test_aa.d
 
+test_cpuid:
+	"$(MAKE)" -f test\cpuid\win64.mak "DMD=$(DMD)" MODEL=$(MODEL) "VCDIR=$(VCDIR)" DRUNTIMELIB=$(DRUNTIME) "CC=$(CC)" test
+
 test_hash:
 	$(DMD) -m$(MODEL) -conf= -Isrc -defaultlib=$(DRUNTIME) -run test\hash\src\test_hash.d
+
+test_gc:
+	"$(MAKE)" -f test\gc\win64.mak "DMD=$(DMD)" MODEL=$(MODEL) "VCDIR=$(VCDIR)" DRUNTIMELIB=$(DRUNTIME) "CC=$(CC)" test
+
+custom_gc:
+	$(MAKE) -f test\init_fini\win64.mak "DMD=$(DMD)" MODEL=$(MODEL) "VCDIR=$(VCDIR)" DRUNTIMELIB=$(DRUNTIME) "CC=$(CC)" test
+
+test_shared:
+	$(MAKE) -f test\shared\win64.mak "DMD=$(DMD)" MODEL=$(MODEL) "VCDIR=$(VCDIR)" DRUNTIMELIB=$(DRUNTIME) "CC=$(CC)" test
+
+test_all: test_aa test_cpuid test_hash test_gc custom_gc test_shared
 
 ################### zip/install/clean ##########################
 
@@ -153,4 +169,4 @@ clean:
 
 auto-tester-build: target
 
-auto-tester-test: unittest test_aa test_hash
+auto-tester-test: unittest test_all

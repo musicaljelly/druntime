@@ -13,14 +13,13 @@
  */
 module gc.proxy;
 
-import gc.impl.conservative.gc;
-import gc.impl.manual.gc;
 import gc.impl.proto.gc;
 // !!!
 import gc.impl.scrapheap.gc;
 // !!!
-import gc.config;
-import gc.gcinterface;
+import core.gc.config;
+import core.gc.gcinterface;
+import core.gc.registry : createGCInstance;
 
 static import core.memory;
 
@@ -63,19 +62,33 @@ private
 
 extern (C)
 {
+    // do not import GC modules, they might add a dependency to this whole module
+    void _d_register_conservative_gc();
+    void _d_register_manual_gc();
+
+    // if you don't want to include the default GCs, replace during link by another implementation
+    void* register_default_gcs()
+    {
+        pragma(inline, false);
+        // do not call, they register implicitly through pragma(crt_constructor)
+        // avoid being optimized away
+        auto reg1 = &_d_register_conservative_gc;
+        auto reg2 = &_d_register_manual_gc;
+        return reg1 < reg2 ? reg1 : reg2;
+    }
+
     void gc_init()
     {
         instanceLock.lock();
         if (!isInstanceInit)
         {
             // !!!
-            auto protoInstance = gcInstance;
+            register_default_gcs();
             config.initialize();
-            ManualGC.initialize(gcInstance);
-            ConservativeGC.initialize(gcInstance);
+            auto protoInstance = gcInstance
+            auto newInstance = createGCInstance(config.gc);
             ScrapheapGC.initialize(scrapheapInstance);
-
-            if (gcInstance is protoInstance)
+            if (newInstance is null)
             {
                 import core.stdc.stdio : fprintf, stderr;
                 import core.stdc.stdlib : exit;
@@ -88,7 +101,8 @@ extern (C)
                 assert(0);
             }
             
-            instance = &gcInstance;
+            gcInstance = newInstance;
+            instance = gcInstance;
             // !!!
 
             // Transfer all ranges and roots to the real GC.
@@ -119,27 +133,38 @@ extern (C)
 
     void gc_term()
     {
-        // NOTE: There may be daemons threads still running when this routine is
-        //       called.  If so, cleaning memory out from under then is a good
-        //       way to make them crash horribly.  This probably doesn't matter
-        //       much since the app is supposed to be shutting down anyway, but
-        //       I'm disabling cleanup for now until I can think about it some
-        //       more.
-        //
-        // NOTE: Due to popular demand, this has been re-enabled.  It still has
-        //       the problems mentioned above though, so I guess we'll see.
-
-        // !!!
         if (isInstanceInit)
         {
-            gcInstance.collectNoStack();  // not really a 'collect all' -- still scans
-                                        // static data area, roots, and ranges.
+            switch (config.cleanup)
+            {
+                default:
+                    import core.stdc.stdio : fprintf, stderr;
+                    fprintf(stderr, "Unknown GC cleanup method, please recheck ('%.*s').\n",
+                            cast(int)config.cleanup.length, config.cleanup.ptr);
+                    break;
+                case "none":
+                    break;
+                case "collect":
+                    // NOTE: There may be daemons threads still running when this routine is
+                    //       called.  If so, cleaning memory out from under then is a good
+                    //       way to make them crash horribly.  This probably doesn't matter
+                    //       much since the app is supposed to be shutting down anyway, but
+                    //       I'm disabling cleanup for now until I can think about it some
+                    //       more.
+                    //
+                    // NOTE: Due to popular demand, this has been re-enabled.  It still has
+                    //       the problems mentioned above though, so I guess we'll see.
 
-            ManualGC.finalize(gcInstance);
-            ConservativeGC.finalize(gcInstance);
-            ScrapheapGC.finalize(scrapheapInstance);
+                    gcInstance.collectNoStack();  // not really a 'collect all' -- still scans
+                                                // static data area, roots, and ranges.
+                    break;
+                case "finalize":
+                    gcInstance.runFinalizers((cast(ubyte*)null)[0 .. size_t.max]);
+                    break;
+            }
+            destroy(gcInstance);
+            destroy(scrapheapInstance);
         }
-        // !!!
     }
 
     void gc_enable()
@@ -232,6 +257,11 @@ extern (C)
         return instance.stats();
     }
 
+    core.memory.GC.ProfileStats gc_profileStats() nothrow
+    {
+        return instance.profileStats();
+    }
+
     void gc_addRoot( void* p ) nothrow @nogc
     {
         // Always use GC instance for addRoot, addRange etc.
@@ -255,7 +285,7 @@ extern (C)
         return gcInstance.removeRange( p );
     }
 
-    void gc_runFinalizers( in void[] segment ) nothrow
+    void gc_runFinalizers(const scope void[] segment ) nothrow
     {
         return instance.runFinalizers( segment );
     }

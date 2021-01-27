@@ -37,75 +37,100 @@ private ubyte[] ctfe_alloc()(size_t n)
 const(ubyte)[] toUbyte(T)(const ref T val) if (is(Unqual!T == float) || is(Unqual!T == double) || is(Unqual!T == real) ||
                                         is(Unqual!T == ifloat) || is(Unqual!T == idouble) || is(Unqual!T == ireal))
 {
-    static const(ubyte)[] reverse_(const(ubyte)[] arr)
-    {
-        ubyte[] buff = ctfe_alloc(arr.length);
-        foreach (k, v; arr)
-        {
-            buff[$-k-1] = v;
-        }
-        return buff;
-    }
     if (__ctfe)
     {
-        auto parsed = parse(val);
-
-        ulong mantissa = parsed.mantissa;
-        uint exp = parsed.exponent;
-        uint sign = parsed.sign;
-
-        ubyte[] buff = ctfe_alloc(T.sizeof);
-        size_t off_bytes = 0;
-        size_t off_bits  = 0;
-        // Quadruples won't fit in one ulong, so check for that.
-        enum mantissaMax = FloatTraits!T.MANTISSA < ulong.sizeof*8 ?
-                           FloatTraits!T.MANTISSA : ulong.sizeof*8;
-
-        for (; off_bytes < mantissaMax/8; ++off_bytes)
+        static if (T.mant_dig == float.mant_dig || T.mant_dig == double.mant_dig)
         {
-            buff[off_bytes] = cast(ubyte)mantissa;
-            mantissa >>= 8;
-        }
-
-        static if (floatFormat!T == FloatFormat.Quadruple)
-        {
-            ulong mantissa2 = parsed.mantissa2;
-            off_bytes--; // go back one, since mantissa only stored data in 56
-                         // bits, ie 7 bytes
-            for (; off_bytes < FloatTraits!T.MANTISSA/8; ++off_bytes)
+            static if (is(T : ireal)) // https://issues.dlang.org/show_bug.cgi?id=19932
+                const f = val.im;
+            else
+                alias f = val;
+            static if (T.sizeof == uint.sizeof)
+                uint bits = *cast(const uint*) &f;
+            else static if (T.sizeof == ulong.sizeof)
+                ulong bits = *cast(const ulong*) &f;
+            ubyte[] result = ctfe_alloc(T.sizeof);
+            version (BigEndian)
             {
-                buff[off_bytes] = cast(ubyte)mantissa2;
-                mantissa2 >>= 8;
+                foreach_reverse (ref b; result)
+                {
+                    b = cast(ubyte) bits;
+                    bits >>= 8;
+                }
             }
+            else
+            {
+                foreach (ref b; result)
+                {
+                    b = cast(ubyte) bits;
+                    bits >>= 8;
+                }
+            }
+            return result;
         }
         else
         {
-            off_bits = FloatTraits!T.MANTISSA%8;
-            buff[off_bytes] = cast(ubyte)mantissa;
-        }
+            auto parsed = parse(val);
 
-        for (size_t i=0; i<FloatTraits!T.EXPONENT/8; ++i)
-        {
-            ubyte cur_exp = cast(ubyte)exp;
-            exp >>= 8;
-            buff[off_bytes] |= (cur_exp << off_bits);
-            ++off_bytes;
-            buff[off_bytes] |= cur_exp >> 8 - off_bits;
-        }
+            ulong mantissa = parsed.mantissa;
+            uint exp = parsed.exponent;
+            uint sign = parsed.sign;
+
+            ubyte[] buff = ctfe_alloc(T.sizeof);
+            size_t off_bytes = 0;
+            size_t off_bits  = 0;
+            // Quadruples won't fit in one ulong, so check for that.
+            enum mantissaMax = FloatTraits!T.MANTISSA < ulong.sizeof*8 ?
+                               FloatTraits!T.MANTISSA : ulong.sizeof*8;
+
+            for (; off_bytes < mantissaMax/8; ++off_bytes)
+            {
+                buff[off_bytes] = cast(ubyte)mantissa;
+                mantissa >>= 8;
+            }
+
+            static if (floatFormat!T == FloatFormat.Quadruple)
+            {
+                ulong mantissa2 = parsed.mantissa2;
+                off_bytes--; // go back one, since mantissa only stored data in 56
+                             // bits, ie 7 bytes
+                for (; off_bytes < FloatTraits!T.MANTISSA/8; ++off_bytes)
+                {
+                    buff[off_bytes] = cast(ubyte)mantissa2;
+                    mantissa2 >>= 8;
+                }
+            }
+            else
+            {
+                off_bits = FloatTraits!T.MANTISSA%8;
+                buff[off_bytes] = cast(ubyte)mantissa;
+            }
+
+            for (size_t i=0; i<FloatTraits!T.EXPONENT/8; ++i)
+            {
+                ubyte cur_exp = cast(ubyte)exp;
+                exp >>= 8;
+                buff[off_bytes] |= (cur_exp << off_bits);
+                ++off_bytes;
+                buff[off_bytes] |= cur_exp >> 8 - off_bits;
+            }
 
 
-        exp <<= 8 - FloatTraits!T.EXPONENT%8 - 1;
-        buff[off_bytes] |= exp;
-        sign <<= 7;
-        buff[off_bytes] |= sign;
+            exp <<= 8 - FloatTraits!T.EXPONENT%8 - 1;
+            buff[off_bytes] |= exp;
+            sign <<= 7;
+            buff[off_bytes] |= sign;
 
-        version (LittleEndian)
-        {
+            version (BigEndian)
+            {
+                for (size_t left = 0, right = buff.length - 1; left < right; left++, right--)
+                {
+                    const swap = buff[left];
+                    buff[left] = buff[right];
+                    buff[right] = swap;
+                }
+            }
             return buff;
-        }
-        else
-        {
-            return reverse_(buff);
         }
     }
     else
@@ -585,16 +610,28 @@ const(ubyte)[] toUbyte(T)(const T[] arr) if (T.sizeof == 1)
 }
 
 @trusted pure nothrow @nogc
-const(ubyte)[] toUbyte(T)(const T[] arr) if ((is(typeof(toUbyte(arr[0])) == const(ubyte)[])) && (T.sizeof > 1))
+const(ubyte)[] toUbyte(T)(const T[] arr) if (T.sizeof > 1)
 {
     if (__ctfe)
     {
         ubyte[] ret = ctfe_alloc(T.sizeof * arr.length);
-        size_t offset = 0;
-        foreach (cur; arr)
+        static if (is(T EType == enum)) // Odd style is to avoid template instantiation in most cases.
+            alias E = OriginalType!EType;
+        else
+            alias E = T;
+        static if (is(E == struct) || is(E == union) || __traits(isStaticArray, E) || !is(typeof(arr[0] is null)))
         {
-            ret[offset .. offset + T.sizeof] = toUbyte(cur)[0 .. T.sizeof];
-            offset += T.sizeof;
+            size_t offset = 0;
+            foreach (ref cur; arr)
+            {
+                ret[offset .. offset + T.sizeof] = toUbyte(cur)[0 .. T.sizeof];
+                offset += T.sizeof;
+            }
+        }
+        else
+        {
+            foreach (cur; arr)
+                assert(cur is null, "Unable to compute byte representation of non-null pointer at compile time");
         }
         return ret;
     }
@@ -683,7 +720,7 @@ const(ubyte)[] toUbyte(T)(const ref T val) if (is(Unqual!T == cfloat) || is(Unqu
 }
 
 @trusted pure nothrow @nogc
-const(ubyte)[] toUbyte(T)(const ref T val) if (is(T V == enum) && is(typeof(toUbyte(cast(const V)val)) == const(ubyte)[]))
+const(ubyte)[] toUbyte(T)(const ref T val) if (is(T == enum))
 {
     if (__ctfe)
     {
@@ -705,49 +742,18 @@ nothrow pure @safe unittest
     enum ctfe_works = (() => { Month x = Month.jan; return toUbyte(x).length > 0; })();
 }
 
-package(core.internal) bool isNonReference(T)()
+@trusted pure nothrow @nogc
+const(ubyte)[] toUbyte(T)(const ref T val) if (is(T == delegate) || is(T : V*, V) && __traits(getAliasThis, T).length == 0)
 {
-    static if (is(T == struct) || is(T == union))
+    if (__ctfe)
     {
-        return isNonReferenceStruct!T();
-    }
-    else static if (__traits(isStaticArray, T))
-    {
-        static if (T.length > 0)
-            return isNonReference!(typeof(T.init[0]))();
-        else
-            return true;
-    }
-    else static if (is(T E == enum))
-    {
-      return isNonReference!(E)();
-    }
-    else static if (!__traits(isScalar, T))
-    {
-        return false;
-    }
-    else static if (is(T V : V*))
-    {
-        return false;
-    }
-    else static if (is(T == function))
-    {
-        return false;
+        if (val !is null) assert(0, "Unable to compute byte representation of non-null pointer at compile time");
+        return ctfe_alloc(T.sizeof);
     }
     else
     {
-        return true;
+        return (cast(const(ubyte)*)&val)[0 .. T.sizeof];
     }
-}
-
-private bool isNonReferenceStruct(T)() if (is(T == struct) || is(T == union))
-{
-    static foreach (cur; T.tupleof)
-    {
-        if (!isNonReference!(typeof(cur))()) return false;
-    }
-
-    return true;
 }
 
 @trusted pure nothrow @nogc
@@ -756,22 +762,20 @@ const(ubyte)[] toUbyte(T)(const ref T val) if (is(T == struct) || is(T == union)
     if (__ctfe)
     {
         ubyte[] bytes = ctfe_alloc(T.sizeof);
-        foreach (key, cur; val.tupleof)
+        foreach (key, ref cur; val.tupleof)
         {
-            alias CUR_TYPE = typeof(cur);
-            static if (isNonReference!(CUR_TYPE)())
+            static if (is(typeof(cur) EType == enum)) // Odd style is to avoid template instantiation in most cases.
+                alias CurType = OriginalType!EType;
+            else
+                alias CurType = typeof(cur);
+            static if (is(CurType == struct) || is(CurType == union) || __traits(isStaticArray, CurType) || !is(typeof(cur is null)))
             {
-                bytes[val.tupleof[key].offsetof .. val.tupleof[key].offsetof + cur.sizeof] = toUbyte(cur)[];
-            }
-            else static if (is(typeof(val.tupleof[key] is null)))
-            {
-                assert(val.tupleof[key] is null, "Unable to compute byte representation of non-null reference field at compile time");
-                //skip, because val bytes are zeros
+                bytes[val.tupleof[key].offsetof .. val.tupleof[key].offsetof + CurType.sizeof] = toUbyte(cur)[];
             }
             else
             {
-                //pragma(msg, "is null: ", typeof(CUR_TYPE).stringof);
-                assert(0, "Unable to compute byte representation of "~typeof(CUR_TYPE).stringof~" field at compile time");
+                assert(cur is null, "Unable to compute byte representation of non-null reference field at compile time");
+                //skip, because val bytes are zeros
             }
         }
         return bytes;
@@ -780,4 +784,14 @@ const(ubyte)[] toUbyte(T)(const ref T val) if (is(T == struct) || is(T == union)
     {
         return (cast(const(ubyte)*)&val)[0 .. T.sizeof];
     }
+}
+
+// Strips off all `enum`s from type `T`.
+// Perhaps move to core.internal.types.
+private template OriginalType(T)
+{
+    static if (is(T EType == enum))
+        alias OriginalType = .OriginalType!EType;
+    else
+        alias OriginalType = T;
 }

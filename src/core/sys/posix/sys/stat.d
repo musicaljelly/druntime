@@ -80,13 +80,13 @@ S_TYPEISMQ(buf)
 S_TYPEISSEM(buf)
 S_TYPEISSHM(buf)
 
-int    chmod(in char*, mode_t);
+int    chmod(const scope char*, mode_t);
 int    fchmod(int, mode_t);
 int    fstat(int, stat*);
-int    lstat(in char*, stat*);
-int    mkdir(in char*, mode_t);
-int    mkfifo(in char*, mode_t);
-int    stat(in char*, stat*);
+int    lstat(const scope char*, stat*);
+int    mkdir(const scope char*, mode_t);
+int    mkfifo(const scope char*, mode_t);
+int    stat(const scope char*, stat*);
 mode_t umask(mode_t);
  */
 
@@ -453,26 +453,84 @@ version (CRuntime_Glibc)
     }
     else version (RISCV_Any)
     {
+        private
+        {
+            alias __dev_t = ulong;
+            alias __ino_t = c_ulong;
+            alias __ino64_t = ulong;
+            alias __mode_t = uint;
+            alias __nlink_t = uint;
+            alias __uid_t = uint;
+            alias __gid_t = uint;
+            alias __off_t = c_long;
+            alias __off64_t = long;
+            alias __blksize_t = int;
+            alias __blkcnt_t = c_long;
+            alias __blkcnt64_t = long;
+            alias __timespec = timespec;
+            alias __time_t = time_t;
+        }
         struct stat_t
         {
-            dev_t       st_dev;
-            ino_t       st_ino;
-            mode_t      st_mode;
-            nlink_t     st_nlink;
-            uid_t       st_uid;
-            gid_t       st_gid;
-            dev_t       st_rdev;
-            dev_t       __pad1;
-            off_t       st_size;
-            blksize_t   st_blksize;
-            int         __pad2;
-            time_t      st_atime;
-            c_ulong     st_atime_nsec;
-            time_t      st_mtime;
-            c_ulong     st_mtime_nsec;
-            time_t      st_ctime;
-            c_ulong     st_ctime_nsec;
-            int[2]      __reserved;
+            __dev_t st_dev;
+
+            static if (__USE_FILE_OFFSET64)
+            {
+                __ino64_t st_ino;
+            }
+            else
+            {
+                __ino_t st_ino;
+            }
+            __mode_t st_mode;
+            __nlink_t st_nlink;
+            __uid_t st_uid;
+            __gid_t st_gid;
+            __dev_t st_rdev;
+            __dev_t __pad1;
+
+            static if (__USE_FILE_OFFSET64)
+            {
+                __off64_t st_size;
+            }
+            else
+            {
+                __off_t st_size;
+            }
+            __blksize_t st_blksize;
+            int __pad2;
+
+            static if (__USE_FILE_OFFSET64)
+            {
+                __blkcnt64_t st_blocks;
+            }
+            else
+            {
+                __blkcnt_t st_blocks;
+            }
+
+            static if (__USE_MISC)
+            {
+                __timespec st_atim;
+                __timespec st_mtim;
+                __timespec st_ctim;
+                extern(D)
+                {
+                    @property ref time_t st_atime() { return st_atim.tv_sec; }
+                    @property ref time_t st_mtime() { return st_mtim.tv_sec; }
+                    @property ref time_t st_ctime() { return st_ctim.tv_sec; }
+                }
+            }
+            else
+            {
+                __time_t st_atime;
+                c_ulong st_atimensec;
+                __time_t st_mtime;
+                c_ulong st_mtimensec;
+                __time_t st_ctime;
+                c_ulong st_ctimensec;
+            }
+            int[2] __unused;
         }
     }
     else version (ARM)
@@ -651,10 +709,10 @@ version (CRuntime_Glibc)
             }
             int[2] __unused;
         }
-        static if (__USE_FILE_OFFSET64)
+        version (D_LP64)
             static assert(stat_t.sizeof == 128);
         else
-            static assert(stat_t.sizeof == 128);
+            static assert(stat_t.sizeof == 104);
     }
     else version (SPARC64)
     {
@@ -733,7 +791,7 @@ version (CRuntime_Glibc)
         }
         static assert(stat_t.sizeof == 144);
     }
-    else version (SystemZ)
+    else version (S390)
     {
         private
         {
@@ -746,7 +804,83 @@ version (CRuntime_Glibc)
             alias __gid_t = uint;
             alias __off_t = c_long;
             alias __off64_t = long;
-            alias __blksize_t = int;
+            alias __blksize_t = c_long;
+            alias __blkcnt_t = c_long;
+            alias __blkcnt64_t = long;
+            alias __timespec = timespec;
+            alias __time_t = time_t;
+        }
+        struct stat_t
+        {
+            __dev_t st_dev;
+            uint __pad1;
+            static if (!__USE_FILE_OFFSET64)
+                __ino_t st_ino;
+            else
+                __ino_t __st_ino;
+            __mode_t st_mode;
+            __nlink_t st_nlink;
+            __uid_t st_uid;
+            __gid_t st_gid;
+            __dev_t st_rdev;
+            uint __pad2;
+            static if (!__USE_FILE_OFFSET64)
+                __off_t st_size;
+            else
+                __off64_t st_size;
+            __blksize_t st_blksize;
+            static if (!__USE_FILE_OFFSET64)
+                __blkcnt_t st_blocks;
+            else
+                __blkcnt64_t st_blocks;
+            static if (__USE_XOPEN2K8)
+            {
+                __timespec st_atim;
+                __timespec st_mtim;
+                __timespec st_ctim;
+                extern(D)
+                {
+                    @property ref time_t st_atime() { return st_atim.tv_sec; }
+                    @property ref time_t st_mtime() { return st_mtim.tv_sec; }
+                    @property ref time_t st_ctime() { return st_ctim.tv_sec; }
+                }
+            }
+            else
+            {
+                __time_t st_atime;
+                c_ulong st_atimensec;
+                __time_t st_mtime;
+                c_ulong st_mtimensec;
+                __time_t st_ctime;
+                c_ulong st_ctimensec;
+            }
+            static if (!__USE_FILE_OFFSET64)
+            {
+                c_ulong __glibc_reserved4;
+                c_ulong __glibc_reserved5;
+            }
+            else
+                __ino64_t st_ino;
+        }
+        static if (__USE_FILE_OFFSET64)
+            static assert(stat_t.sizeof == 104);
+        else
+            static assert(stat_t.sizeof == 88);
+    }
+    else version (SystemZ)
+    {
+        private
+        {
+            alias __dev_t = ulong;
+            alias __ino_t = c_ulong;
+            alias __ino64_t = ulong;
+            alias __mode_t = uint;
+            alias __nlink_t = ulong;
+            alias __uid_t = uint;
+            alias __gid_t = uint;
+            alias __off_t = c_long;
+            alias __off64_t = long;
+            alias __blksize_t = c_long;
             alias __blkcnt_t = c_long;
             alias __blkcnt64_t = long;
             alias __timespec = timespec;
@@ -1066,6 +1200,83 @@ else version (NetBSD)
     extern (D) bool S_ISLNK( mode_t mode )  { return S_ISTYPE( mode, S_IFLNK );  }
     extern (D) bool S_ISSOCK( mode_t mode ) { return S_ISTYPE( mode, S_IFSOCK ); }
 }
+else version (OpenBSD)
+{
+    import core.sys.openbsd.sys.cdefs;
+
+    struct stat_t
+    {
+        mode_t    st_mode;
+        dev_t     st_dev;
+        ino_t     st_ino;
+        nlink_t   st_nlink;
+        uid_t     st_uid;
+        gid_t     st_gid;
+        dev_t     st_rdev;
+      static if (__POSIX_VISIBLE >= 200809 || __BSD_VISIBLE)
+      {
+        timespec  st_atim;
+        timespec  st_mtim;
+        timespec  st_ctim;
+        extern(D)
+        {
+            @property ref time_t st_atime() { return st_atim.tv_sec; }
+            @property ref time_t st_mtime() { return st_mtim.tv_sec; }
+            @property ref time_t st_ctime() { return st_ctim.tv_sec; }
+        }
+      }
+      else
+      {
+        time_t    st_atime;
+        long      st_atimensec;
+        time_t    st_mtime;
+        long      st_mtimensec;
+        time_t    st_ctime;
+        long      st_ctimensec;
+      }
+        off_t     st_size;
+        blkcnt_t  st_blocks;
+        blksize_t st_blksize;
+        uint32_t  st_flags;
+        uint32_t  st_gen;
+      static if (__POSIX_VISIBLE >= 200809 || __BSD_VISIBLE)
+      {
+        timespec __st_birthtim;
+      }
+      else
+      {
+        time_t  __st_birthtime;
+        long    __st_birthtimensec;
+      }
+    }
+
+    enum S_IRUSR    = 0x100; // octal 0000400
+    enum S_IWUSR    = 0x080; // octal 0000200
+    enum S_IXUSR    = 0x040; // octal 0000100
+    enum S_IRWXU    = 0x1C0; // octal 0000700
+
+    enum S_IRGRP    = 0x020;  // octal 0000040
+    enum S_IWGRP    = 0x010;  // octal 0000020
+    enum S_IXGRP    = 0x008;  // octal 0000010
+    enum S_IRWXG    = 0x038;  // octal 0000070
+
+    enum S_IROTH    = 0x4; // 0000004
+    enum S_IWOTH    = 0x2; // 0000002
+    enum S_IXOTH    = 0x1; // 0000001
+    enum S_IRWXO    = 0x7; // 0000007
+
+    enum S_ISUID    = 0x800; // octal 0004000
+    enum S_ISGID    = 0x400; // octal 0002000
+    enum S_ISVTX    = 0x200; // octal 0001000
+
+    extern (D) bool S_ISBLK(mode_t mode)  { return (mode & S_IFMT) == S_IFBLK;  }
+    extern (D) bool S_ISCHR(mode_t mode)  { return (mode & S_IFMT) == S_IFCHR;  }
+    extern (D) bool S_ISDIR(mode_t mode)  { return (mode & S_IFMT) == S_IFDIR;  }
+    extern (D) bool S_ISFIFO(mode_t mode) { return (mode & S_IFMT) == S_IFIFO;  }
+    extern (D) bool S_ISREG(mode_t mode)  { return (mode & S_IFMT) == S_IFREG;  }
+    extern (D) bool S_ISLNK(mode_t mode)  { return (mode & S_IFMT) == S_IFLNK;  }
+    extern (D) bool S_ISSOCK(mode_t mode) { return (mode & S_IFMT) == S_IFSOCK; }
+}
 else version (DragonFlyBSD)
 {
     struct stat_t {
@@ -1161,7 +1372,7 @@ else version (Solaris)
             }
             blksize_t st_blksize;
             blkcnt_t st_blocks;
-            char[_ST_FSTYPSZ] st_fstype;
+            char[_ST_FSTYPSZ] st_fstype = 0;
         }
 
         static if (__USE_LARGEFILE64) alias stat_t stat64_t;
@@ -1198,7 +1409,7 @@ else version (Solaris)
             }
             blksize_t st_blksize;
             blkcnt_t st_blocks;
-            char[_ST_FSTYPSZ] st_fstype;
+            char[_ST_FSTYPSZ] st_fstype = 0;
             c_long[8] st_pad4;
         }
 
@@ -1232,7 +1443,7 @@ else version (Solaris)
             }
             blksize_t st_blksize;
             blkcnt64_t st_blocks;
-            char[_ST_FSTYPSZ] st_fstype;
+            char[_ST_FSTYPSZ] st_fstype = 0;
             c_long[8] st_pad4;
         }
 
@@ -1470,11 +1681,11 @@ else version (CRuntime_Musl)
         timespec st_atim;
         timespec st_mtim;
         timespec st_ctim;
-        extern(D) @safe @property
+        extern(D) @safe @property inout pure nothrow
         {
-            ref time_t st_atime() return { return st_atim.tv_sec; }
-            ref time_t st_mtime() return { return st_mtim.tv_sec; }
-            ref time_t st_ctime() return { return st_ctim.tv_sec; }
+            ref inout(time_t) st_atime() return { return st_atim.tv_sec; }
+            ref inout(time_t) st_mtime() return { return st_mtim.tv_sec; }
+            ref inout(time_t) st_ctime() return { return st_ctim.tv_sec; }
         }
         long[3] __unused;
     }
@@ -1717,13 +1928,13 @@ else
     static assert(false, "Unsupported platform");
 }
 
-int    chmod(in char*, mode_t);
+int    chmod(const scope char*, mode_t);
 int    fchmod(int, mode_t);
 //int    fstat(int, stat_t*);
-//int    lstat(in char*, stat_t*);
-int    mkdir(in char*, mode_t);
-int    mkfifo(in char*, mode_t);
-//int    stat(in char*, stat_t*);
+//int    lstat(const scope char*, stat_t*);
+int    mkdir(const scope char*, mode_t);
+int    mkfifo(const scope char*, mode_t);
+//int    stat(const scope char*, stat_t*);
 mode_t umask(mode_t);
 
 version (CRuntime_Glibc)
@@ -1733,17 +1944,17 @@ version (CRuntime_Glibc)
     int   fstat64(int, stat_t*) @trusted;
     alias fstat64 fstat;
 
-    int   lstat64(in char*, stat_t*);
+    int   lstat64(const scope char*, stat_t*);
     alias lstat64 lstat;
 
-    int   stat64(in char*, stat_t*);
+    int   stat64(const scope char*, stat_t*);
     alias stat64 stat;
   }
   else
   {
     int   fstat(int, stat_t*) @trusted;
-    int   lstat(in char*, stat_t*);
-    int   stat(in char*, stat_t*);
+    int   lstat(const scope char*, stat_t*);
+    int   stat(const scope char*, stat_t*);
   }
 }
 else version (Solaris)
@@ -1751,8 +1962,8 @@ else version (Solaris)
     version (D_LP64)
     {
         int fstat(int, stat_t*) @trusted;
-        int lstat(in char*, stat_t*);
-        int stat(in char*, stat_t*);
+        int lstat(const scope char*, stat_t*);
+        int stat(const scope char*, stat_t*);
 
         static if (__USE_LARGEFILE64)
         {
@@ -1768,17 +1979,17 @@ else version (Solaris)
             int   fstat64(int, stat_t*) @trusted;
             alias fstat64 fstat;
 
-            int   lstat64(in char*, stat_t*);
+            int   lstat64(const scope char*, stat_t*);
             alias lstat64 lstat;
 
-            int   stat64(in char*, stat_t*);
+            int   stat64(const scope char*, stat_t*);
             alias stat64 stat;
         }
         else
         {
             int fstat(int, stat_t*) @trusted;
-            int lstat(in char*, stat_t*);
-            int stat(in char*, stat_t*);
+            int lstat(const scope char*, stat_t*);
+            int stat(const scope char*, stat_t*);
         }
     }
 }
@@ -1789,48 +2000,54 @@ else version (Darwin)
     version (OSX)
     {
         pragma(mangle, "fstat$INODE64") int fstat(int, stat_t*);
-        pragma(mangle, "lstat$INODE64") int lstat(in char*, stat_t*);
-        pragma(mangle, "stat$INODE64")  int stat(in char*, stat_t*);
+        pragma(mangle, "lstat$INODE64") int lstat(const scope char*, stat_t*);
+        pragma(mangle, "stat$INODE64")  int stat(const scope char*, stat_t*);
     }
     else
     {
         int fstat(int, stat_t*);
-        int lstat(in char*, stat_t*);
-        int stat(in char*, stat_t*);
+        int lstat(const scope char*, stat_t*);
+        int stat(const scope char*, stat_t*);
     }
 }
 else version (FreeBSD)
 {
-    int   fstat(int, stat_t*);
-    int   lstat(in char*, stat_t*);
-    int   stat(in char*, stat_t*);
+    pragma(mangle, "fstat@FBSD_1.0") int   fstat(int, stat_t*);
+    pragma(mangle, "lstat@FBSD_1.0") int   lstat(const scope char*, stat_t*);
+    pragma(mangle, "stat@FBSD_1.0")  int   stat(const scope char*, stat_t*);
 }
 else version (NetBSD)
 {
     int   __fstat50(int, stat_t*);
-    int   __lstat50(in char*, stat_t*);
-    int   __stat50(in char*, stat_t*);
+    int   __lstat50(const scope char*, stat_t*);
+    int   __stat50(const scope char*, stat_t*);
     alias __fstat50 fstat;
     alias __lstat50 lstat;
     alias __stat50 stat;
 }
+else version (OpenBSD)
+{
+    int   fstat(int, stat_t*);
+    int   lstat(const scope char*, stat_t*);
+    int   stat(const scope char*, stat_t*);
+}
 else version (DragonFlyBSD)
 {
     int   fstat(int, stat_t*);
-    int   lstat(in char*, stat_t*);
-    int   stat(in char*, stat_t*);
+    int   lstat(const scope char*, stat_t*);
+    int   stat(const scope char*, stat_t*);
 }
 else version (CRuntime_Bionic)
 {
     int   fstat(int, stat_t*) @trusted;
-    int   lstat(in char*, stat_t*);
-    int   stat(in char*, stat_t*);
+    int   lstat(const scope char*, stat_t*);
+    int   stat(const scope char*, stat_t*);
 }
 else version (CRuntime_Musl)
 {
-    int stat(in char*, stat_t*);
+    int stat(const scope char*, stat_t*);
     int fstat(int, stat_t*);
-    int lstat(in char*, stat_t*);
+    int lstat(const scope char*, stat_t*);
 
     alias fstat fstat64;
     alias lstat lstat64;
@@ -1843,17 +2060,17 @@ else version (CRuntime_UClibc)
     int   fstat64(int, stat_t*) @trusted;
     alias fstat64 fstat;
 
-    int   lstat64(in char*, stat_t*);
+    int   lstat64(const scope char*, stat_t*);
     alias lstat64 lstat;
 
-    int   stat64(in char*, stat_t*);
+    int   stat64(const scope char*, stat_t*);
     alias stat64 stat;
   }
   else
   {
     int   fstat(int, stat_t*) @trusted;
-    int   lstat(in char*, stat_t*);
-    int   stat(in char*, stat_t*);
+    int   lstat(const scope char*, stat_t*);
+    int   stat(const scope char*, stat_t*);
   }
 }
 
@@ -1891,7 +2108,7 @@ version (CRuntime_Glibc)
     enum S_IFLNK    = 0xA000; // octal 0120000
     enum S_IFSOCK   = 0xC000; // octal 0140000
 
-    int mknod(in char*, mode_t, dev_t);
+    int mknod(const scope char*, mode_t, dev_t);
 }
 else version (Darwin)
 {
@@ -1904,7 +2121,7 @@ else version (Darwin)
     enum S_IFLNK    = 0xA000; // octal 0120000
     enum S_IFSOCK   = 0xC000; // octal 0140000
 
-    int mknod(in char*, mode_t, dev_t);
+    int mknod(const scope char*, mode_t, dev_t);
 }
 else version (FreeBSD)
 {
@@ -1917,7 +2134,7 @@ else version (FreeBSD)
     enum S_IFLNK    = 0xA000; // octal 0120000
     enum S_IFSOCK   = 0xC000; // octal 0140000
 
-    int mknod(in char*, mode_t, dev_t);
+    pragma(mangle, "mknod@FBSD_1.0") int mknod(const scope char*, mode_t, dev_t);
 }
 else version (NetBSD)
 {
@@ -1930,7 +2147,20 @@ else version (NetBSD)
     enum S_IFLNK    = 0xA000; // octal 0120000
     enum S_IFSOCK   = 0xC000; // octal 0140000
 
-    int mknod(in char*, mode_t, dev_t);
+    int mknod(const scope char*, mode_t, dev_t);
+}
+else version (OpenBSD)
+{
+    enum S_IFMT     = 0xF000; // octal 0170000
+    enum S_IFBLK    = 0x6000; // octal 0060000
+    enum S_IFCHR    = 0x2000; // octal 0020000
+    enum S_IFIFO    = 0x1000; // octal 0010000
+    enum S_IFREG    = 0x8000; // octal 0100000
+    enum S_IFDIR    = 0x4000; // octal 0040000
+    enum S_IFLNK    = 0xA000; // octal 0120000
+    enum S_IFSOCK   = 0xC000; // octal 0140000
+
+    int mknod(const scope char*, mode_t, dev_t);
 }
 else version (DragonFlyBSD)
 {
@@ -1943,7 +2173,7 @@ else version (DragonFlyBSD)
     enum S_IFLNK    = 0xA000; // octal 0120000
     enum S_IFSOCK   = 0xC000; // octal 0140000
 
-    int mknod(in char*, mode_t, dev_t);
+    int mknod(const scope char*, mode_t, dev_t);
 }
 else version (Solaris)
 {
@@ -1958,7 +2188,7 @@ else version (Solaris)
     enum S_IFDOOR = 0xD000;
     enum S_IFPORT = 0xE000;
 
-    int mknod(in char*, mode_t, dev_t);
+    int mknod(const scope char*, mode_t, dev_t);
 }
 else version (CRuntime_Bionic)
 {
@@ -1971,7 +2201,7 @@ else version (CRuntime_Bionic)
     enum S_IFLNK    = 0xA000; // octal 0120000
     enum S_IFSOCK   = 0xC000; // octal 0140000
 
-    int mknod(in char*, mode_t, dev_t);
+    int mknod(const scope char*, mode_t, dev_t);
 }
 else version (CRuntime_Musl)
 {
@@ -1986,7 +2216,7 @@ else version (CRuntime_Musl)
         S_IFSOCK   = 0xC000, // octal 0140000
     }
 
-    int mknod(in char*, mode_t, dev_t);
+    int mknod(const scope char*, mode_t, dev_t);
 }
 else version (CRuntime_UClibc)
 {
@@ -1999,7 +2229,7 @@ else version (CRuntime_UClibc)
     enum S_IFLNK    = 0xA000; // octal 0120000
     enum S_IFSOCK   = 0xC000; // octal 0140000
 
-    int mknod(in char*, mode_t, dev_t);
+    int mknod(const scope char*, mode_t, dev_t);
 }
 else
 {

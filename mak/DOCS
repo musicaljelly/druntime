@@ -7,6 +7,7 @@ DOCS=\
 	$(DOCDIR)\core_cpuid.html \
 	$(DOCDIR)\core_demangle.html \
 	$(DOCDIR)\core_exception.html \
+	$(DOCDIR)\core_lifetime.html \
 	$(DOCDIR)\core_math.html \
 	$(DOCDIR)\core_memory.html \
 	$(DOCDIR)\core_runtime.html \
@@ -14,6 +15,10 @@ DOCS=\
 	$(DOCDIR)\core_thread.html \
 	$(DOCDIR)\core_time.html \
 	$(DOCDIR)\core_vararg.html \
+	\
+	$(DOCDIR)\core_gc_config.html \
+	$(DOCDIR)\core_gc_gcinterface.html \
+	$(DOCDIR)\core_gc_registry.html \
 	\
 	$(DOCDIR)\core_stdc_assert_.html \
 	$(DOCDIR)\core_stdc_config.html \
@@ -38,15 +43,21 @@ DOCS=\
 	$(DOCDIR)\core_stdc_wchar_.html \
 	$(DOCDIR)\core_stdc_wctype.html \
 	\
+	$(DOCDIR)\core_stdcpp_allocator.html \
 	$(DOCDIR)\core_stdcpp_array.html \
-	$(DOCDIR)\core_stdcpp_string_view.html \
 	$(DOCDIR)\core_stdcpp_exception.html \
+	$(DOCDIR)\core_stdcpp_new_.html \
+	$(DOCDIR)\core_stdcpp_string.html \
+	$(DOCDIR)\core_stdcpp_string_view.html \
 	$(DOCDIR)\core_stdcpp_typeinfo.html \
+	$(DOCDIR)\core_stdcpp_type_traits.html \
+	$(DOCDIR)\core_stdcpp_vector.html \
 	\
 	$(DOCDIR)\core_sync_barrier.html \
 	$(DOCDIR)\core_sync_condition.html \
 	$(DOCDIR)\core_sync_config.html \
 	$(DOCDIR)\core_sync_exception.html \
+	$(DOCDIR)\core_sync_event.html \
 	$(DOCDIR)\core_sync_mutex.html \
 	$(DOCDIR)\core_sync_rwmutex.html \
 	$(DOCDIR)\core_sync_semaphore.html \
@@ -64,13 +75,23 @@ DOCS=\
 	$(DOCDIR)\core_sys_darwin_mach_thread_act.html \
 	$(DOCDIR)\core_sys_darwin_netinet_in_.html \
 	\
+    $(DOCDIR)\core_internal_array_appending.html \
+    $(DOCDIR)\core_internal_array_capacity.html \
+    $(DOCDIR)\core_internal_array_casting.html \
+    $(DOCDIR)\core_internal_array_comparison.html \
+    $(DOCDIR)\core_internal_array_construction.html \
+    $(DOCDIR)\core_internal_array_equality.html \
+    $(DOCDIR)\core_internal_array_concatenation.html \
+    $(DOCDIR)\core_internal_array_utils.html \
+    $(DOCDIR)\core_internal_util_array.html \
+    \
     $(DOCDIR)\rt_aaA.html \
     $(DOCDIR)\rt_aApply.html \
     $(DOCDIR)\rt_aApplyR.html \
     $(DOCDIR)\rt_adi.html \
     $(DOCDIR)\rt_alloca.html \
+    \
     $(DOCDIR)\rt_arrayassign.html \
-    $(DOCDIR)\rt_arraycast.html \
     $(DOCDIR)\rt_arraycat.html \
     \
     $(DOCDIR)\rt_backtrace_dwarf.html \
@@ -95,7 +116,6 @@ DOCS=\
     $(DOCDIR)\rt_memset.html \
     $(DOCDIR)\rt_minfo.html \
     $(DOCDIR)\rt_monitor_.html \
-    $(DOCDIR)\rt_obj.html \
     $(DOCDIR)\rt_profilegc.html \
     $(DOCDIR)\rt_qsort.html \
     $(DOCDIR)\rt_sections_android.html \
@@ -150,10 +170,10 @@ DOCS=\
 	\
     $(DOCDIR)\rt_unwind.html \
 	\
-    $(DOCDIR)\rt_util_array.html \
     $(DOCDIR)\rt_util_container_array.html \
     $(DOCDIR)\rt_util_container_common.html \
     $(DOCDIR)\rt_util_container_hashtab.html \
     $(DOCDIR)\rt_util_container_treap.html \
+    $(DOCDIR)\rt_util_utility.html \
     $(DOCDIR)\rt_util_random.html \
     $(DOCDIR)\rt_util_typeinfo.html \

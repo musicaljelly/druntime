@@ -27,7 +27,7 @@ alias Elf64_Sxword Elf64_Ssize;
 
 struct Elf64_Ehdr
 {
-    char[EI_NIDENT] e_ident;
+    char[EI_NIDENT] e_ident = 0;
     Elf64_Half    e_type;
     Elf64_Half    e_machine;
     Elf64_Word    e_version;
@@ -41,6 +41,15 @@ struct Elf64_Ehdr
     Elf64_Half    e_shentsize;
     Elf64_Half    e_shnum;
     Elf64_Half    e_shstrndx;
+}
+
+struct Elf64_Lib
+{
+    Elf64_Word    l_name;
+    Elf64_Word    l_time_stamp;
+    Elf64_Word    l_checksum;
+    Elf64_Word    l_version;
+    Elf64_Word    l_flags;
 }
 
 struct Elf64_Shdr

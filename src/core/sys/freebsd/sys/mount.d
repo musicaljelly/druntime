@@ -28,7 +28,7 @@ struct fid
 {
     ushort         fid_len;
     ushort         fid_data0;
-    char[MAXFIDSZ] fid_data;
+    char[MAXFIDSZ] fid_data = 0;
 }
 
 enum MFSNAMELEN = 16;
@@ -55,10 +55,10 @@ struct statfs_t
     uint f_namemax;
     uid_t f_owner;
     fsid_t f_fsid;
-    char[80] f_charspare;
-    char[MFSNAMELEN] f_fstypename;
-    char[MNAMELEN] f_mntfromname;
-    char[MNAMELEN] f_mntonname;
+    char[80] f_charspare = 0;
+    char[MFSNAMELEN] f_fstypename = 0;
+    char[MNAMELEN] f_mntfromname = 0;
+    char[MNAMELEN] f_mntonname = 0;
 }
 
 
@@ -207,7 +207,7 @@ struct nfs_public
 struct vfsconf
 {
     uint vfc_version;
-    char[MFSNAMELEN] vfc_name;
+    char[MFSNAMELEN] vfc_name = 0;
     vfsops* vfc_vfsops;
     int vfc_typenum;
     int vfc_refcount;
@@ -219,7 +219,7 @@ struct vfsconf
 struct xvfsconf
 {
     vfsops* vfc_vfsops;
-    char[MFSNAMELEN] vfc_name;
+    char[MFSNAMELEN] vfc_name = 0;
     int vfc_typenum;
     int vfc_refcount;
     int vfc_flags;
@@ -230,7 +230,7 @@ struct xvfsconf
 struct ovfsconf
 {
     void* vfc_vfsops;
-    char[32] vfc_name;
+    char[32] vfc_name = 0;
     int vfc_index;
     int vfc_refcount;
     int vfc_flags;
@@ -252,7 +252,7 @@ struct vfsidctl
 {
     int vc_vers;
     fsid_t vc_fsid;
-    char[MFSNAMELEN] vc_fstypename;
+    char[MFSNAMELEN] vc_fstypename = 0;
     fsctlop_t vc_op;
     void* vc_ptr;
     size_t vc_len;
@@ -288,17 +288,17 @@ enum uint VQ_FLAG2000 = 0x2000;
 enum uint VQ_FLAG4000 = 0x4000;
 enum uint VQ_FLAG8000 = 0x8000;
 
-int fhopen(const fhandle_t*, int);
-int fhstat(const fhandle_t*, stat_t*);
-int fhstatfs(const fhandle_t*, statfs_t*);
-int fstatfs(int, statfs_t*);
-int getfh(const char*, fhandle_t*);
-int getfsstat(statfs_t*, c_long, int);
-int getmntinfo(statfs_t**, int);
-int lgetfh(const char*, fhandle_t*);
-int mount(const char*, const char*, int, void*);
+pragma(mangle, "fhopen@@FBSD_1.0")    int fhopen(const fhandle_t*, int);
+pragma(mangle, "fhstat@FBSD_1.0")     int fhstat(const fhandle_t*, stat_t*);
+pragma(mangle, "fhstatfs@FBSD_1.0")   int fhstatfs(const fhandle_t*, statfs_t*);
+pragma(mangle, "fstatfs@FBSD_1.0")    int fstatfs(int, statfs_t*);
+pragma(mangle, "getfh@@FBSD_1.0")     int getfh(const char*, fhandle_t*);
+pragma(mangle, "getfsstat@FBSD_1.0")  int getfsstat(statfs_t*, c_long, int);
+pragma(mangle, "getmntinfo@FBSD_1.0") int getmntinfo(statfs_t**, int);
+pragma(mangle, "lgetfh@@FBSD_1.0")    int lgetfh(const char*, fhandle_t*);
+pragma(mangle, "mount@@FBSD_1.0")     int mount(const char*, const char*, int, void*);
 //int nmount(iovec*, uint, int);
-int statfs(const char*, statfs_t*);
-int unmount(const char*, int);
+pragma(mangle, "statfs@FBSD_1.0")     int statfs(const char*, statfs_t*);
+pragma(mangle, "unmount@@FBSD_1.0")   int unmount(const char*, int);
 
 //int getvfsbyname(const char*, xvfsconf*);

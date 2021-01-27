@@ -214,32 +214,6 @@ unittest
 }
 
 /**
- * Thrown on hidden function error.
- * $(RED Deprecated.
- *   This feature is not longer part of the language.)
- */
-deprecated class HiddenFuncError : Error
-{
-    @safe pure nothrow this( ClassInfo ci )
-    {
-        super( "Hidden method called for " ~ ci.name );
-    }
-}
-
-deprecated unittest
-{
-    ClassInfo info = new ClassInfo;
-    info.name = "testInfo";
-
-    {
-        auto hfe = new HiddenFuncError(info);
-        assert(hfe.next is null);
-        assert(hfe.msg == "Hidden method called for testInfo");
-    }
-}
-
-
-/**
  * Thrown on an out of memory error.
  */
 class OutOfMemoryError : Error
@@ -434,19 +408,6 @@ alias AssertHandler = void function(string file, size_t line, string msg) nothro
     _assertHandler = handler;
 }
 
-/**
- * Overrides the default assert hander with a user-supplied version.
- * $(RED Deprecated.
- *   Please use $(LREF assertHandler) instead.)
- *
- * Params:
- *  h = The new assert handler.  Set to null to use the default handler.
- */
-deprecated void setAssertHandler( AssertHandler h ) @trusted nothrow @nogc
-{
-    assertHandler = h;
-}
-
 
 ///////////////////////////////////////////////////////////////////////////////
 // Overridable Callbacks
@@ -543,22 +504,6 @@ extern (C) void onFinalizeError( TypeInfo info, Throwable e, string file = __FIL
     throw staticError!FinalizeError(info, e, file, line);
 }
 
-
-/**
- * A callback for hidden function errors in D.  A $(LREF HiddenFuncError) will be
- * thrown.
- * $(RED Deprecated.
- *   This feature is not longer part of the language.)
- *
- * Throws:
- *  $(LREF HiddenFuncError).
- */
-deprecated extern (C) void onHiddenFuncError( Object o ) @safe pure nothrow
-{
-    throw new HiddenFuncError( typeid(o) );
-}
-
-
 /**
  * A callback for out of memory errors in D.  An $(LREF OutOfMemoryError) will be
  * thrown.
@@ -594,25 +539,6 @@ extern (C) void onInvalidMemoryOperationError(void* pretend_sideffect = null) @t
     throw staticError!InvalidMemoryOperationError();
 }
 
-
-/**
- * A callback for switch errors in D.  A $(LREF SwitchError) will be thrown.
- *
- * Params:
- *  file = The name of the file that signaled this error.
- *  line = The line number on which this error occurred.
- *
- * Throws:
- *  $(LREF SwitchError).
- */
-extern (C) void onSwitchError( string file = __FILE__, size_t line = __LINE__ ) @safe pure nothrow
-{
-    version (D_Exceptions)
-        throw new SwitchError( file, line, null );
-    else
-        assert(0, "No appropriate switch clause found");
-}
-
 /**
  * A callback for unicode errors in D.  A $(LREF UnicodeException) will be thrown.
  *
@@ -640,7 +566,6 @@ extern (C) void onAssertErrorMsg(string file, size_t line, string msg);
 extern (C) void onUnittestErrorMsg(string file, size_t line, string msg);
 extern (C) void onRangeError(string file, size_t line);
 extern (C) void onHiddenFuncError(Object o);
-extern (C) void onSwitchError(string file, size_t line);
 +/
 
 /***********************************
@@ -699,13 +624,6 @@ extern (C)
     void _d_arraybounds(string file, uint line)
     {
         onRangeError(file, line);
-    }
-
-    /* Called when a switch statement has no DefaultStatement, yet none of the cases match
-     */
-    void _d_switch_error(immutable(ModuleInfo)* m, uint line)
-    {
-        onSwitchError(m.name, line);
     }
 }
 

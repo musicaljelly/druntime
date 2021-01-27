@@ -174,7 +174,7 @@ version (linux)
             sigset_t __def, __mask;
             int __prio, __pol;
             void* __fn;
-            char[64 - (void*).sizeof] __pad;
+            char[64 - (void*).sizeof] __pad = void;
         }
         struct posix_spawn_file_actions_t
         {
@@ -213,6 +213,7 @@ version (linux)
             int __policy;
             int[16] __pad;
         }
+        struct __spawn_action;
         struct posix_spawn_file_actions_t
         {
             int __allocated;
@@ -238,7 +239,8 @@ else version (Darwin)
         // POSIX_SPAWN_SETSCHEDPARAM = 0x10,  // not supported
         // POSIX_SPAWN_SETSCHEDULER = 0x20,   // ditto
         POSIX_SPAWN_SETEXEC = 0x40,
-        POSIX_SPAWN_START_SUSPENDED = 0x80
+        POSIX_SPAWN_START_SUSPENDED = 0x80,
+        POSIX_SPAWN_CLOEXEC_DEFAULT = 0x4000
     }
     alias posix_spawnattr_t = void*;
     alias posix_spawn_file_actions_t = void*;
@@ -287,6 +289,8 @@ else version (NetBSD)
         uint len;
         posix_spawn_file_actions_entry_t* fae;
     }
+    alias posix_spawnattr_t = posix_spawnattr;
+    alias posix_spawn_file_actions_t = posix_spawn_file_actions;
 }
 else version (OpenBSD)
 {

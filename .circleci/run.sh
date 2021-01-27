@@ -10,7 +10,7 @@ CIRCLE_PROJECT_REPONAME=${CIRCLE_PROJECT_REPONAME:-druntime}
 
 case $CIRCLE_NODE_INDEX in
     0) MODEL=64 ;;
-    1) MODEL=32 ;;
+    1) MODEL=32 ;; # broken - https://issues.dlang.org/show_bug.cgi?id=19116
 esac
 
 download() {
@@ -98,10 +98,15 @@ coverage() {
     # load environment for bootstrap compiler
     source "$(CURL_USER_AGENT=\"$CURL_USER_AGENT\" bash ~/dlang/install.sh dmd-$HOST_DMD_VER --activate)"
 
-    # build dmd and druntime (in debug and release)
-    make -j$N -C ../dmd/src -f posix.mak MODEL=$MODEL HOST_DMD=$DMD BUILD="debug" all
+    # build dmd (release) and druntime (debug)
     make -j$N -C ../dmd/src -f posix.mak MODEL=$MODEL HOST_DMD=$DMD BUILD="release" all
     TEST_COVERAGE="1" make -j$N -C . -f posix.mak MODEL=$MODEL unittest-debug
+}
+
+betterc()
+{
+    clone https://github.com/dlang/tools.git ../tools master --depth 1
+    make -f posix.mak betterc -j$N DUB="$HOME/dlang/dmd-${HOST_DMD_VER}/linux/bin64/dub"
 }
 
 codecov()
@@ -116,6 +121,7 @@ case $1 in
     install-deps) install_deps ;;
     setup-repos) setup_repos ;;
     style) style ;;
+    betterc) betterc ;;
     coverage) coverage ;;
     codecov) codecov ;;
 esac

@@ -11,7 +11,7 @@
  *    (See accompanying file LICENSE or copy at
  *          http://www.boost.org/LICENSE_1_0.txt)
  */
-module gc.gcinterface;
+module core.gc.gcinterface;
 
 static import core.memory;
 alias BlkAttr = core.memory.GC.BlkAttr;
@@ -33,16 +33,11 @@ struct Range
     void* ptop;
     TypeInfo ti; // should be tail const, but doesn't exist for references
     alias pbot this; // only consider pbot for relative ordering (opCmp)
+    bool opEquals(const scope Range rhs) nothrow const { return pbot == rhs.pbot; }
 }
 
 interface GC
 {
-
-    /*
-     *
-     */
-    void Dtor();
-
     /**
      *
      */
@@ -149,6 +144,12 @@ interface GC
     core.memory.GC.Stats stats() nothrow;
 
     /**
+     * Retrieve profile statistics about garbage collection.
+     * Useful for debugging and tuning.
+     */
+    core.memory.GC.ProfileStats profileStats() nothrow;
+
+    /**
      * add p to list of roots
      */
     void addRoot(void* p) nothrow @nogc;
@@ -181,7 +182,7 @@ interface GC
     /**
      * run finalizers
      */
-    void runFinalizers(in void[] segment) nothrow;
+    void runFinalizers(const scope void[] segment) nothrow;
 
     /*
      *

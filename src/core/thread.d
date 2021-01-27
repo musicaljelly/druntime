@@ -47,8 +47,17 @@ version (Solaris)
     import core.sys.posix.sys.wait : idtype_t;
 }
 
-// this should be true for most architectures
-version = StackGrowsDown;
+version (GNU)
+{
+    import gcc.builtins;
+    version (GNU_StackGrowsDown)
+        version = StackGrowsDown;
+}
+else
+{
+    // this should be true for most architectures
+    version = StackGrowsDown;
+}
 
 /**
  * Returns the process ID of the calling process, which is guaranteed to be
@@ -65,7 +74,7 @@ version (Posix)
 }
 else version (Windows)
 {
-    alias getpid = core.sys.windows.windows.GetCurrentProcessId;
+    alias getpid = core.sys.windows.winbase.GetCurrentProcessId;
 }
 
 
@@ -185,11 +194,18 @@ version (Windows)
     {
         import core.stdc.stdint : uintptr_t; // for _beginthreadex decl below
         import core.stdc.stdlib;             // for malloc, atexit
-        import core.sys.windows.windows;
-        import core.sys.windows.threadaux;   // for OpenThreadHandle
+        import core.sys.windows.basetsd /+: HANDLE+/;
+        import core.sys.windows.threadaux /+: getThreadStackBottom, impersonate_thread, OpenThreadHandle+/;
+        import core.sys.windows.winbase /+: CloseHandle, CREATE_SUSPENDED, DuplicateHandle, GetCurrentThread,
+            GetCurrentThreadId, GetCurrentProcess, GetExitCodeThread, GetSystemInfo, GetThreadContext,
+            GetThreadPriority, INFINITE, ResumeThread, SetThreadPriority, Sleep,  STILL_ACTIVE,
+            SuspendThread, SwitchToThread, SYSTEM_INFO, THREAD_PRIORITY_IDLE, THREAD_PRIORITY_NORMAL,
+            THREAD_PRIORITY_TIME_CRITICAL, WAIT_OBJECT_0, WaitForSingleObject+/;
+        import core.sys.windows.windef /+: TRUE+/;
+        import core.sys.windows.winnt /+: CONTEXT, CONTEXT_CONTROL, CONTEXT_INTEGER+/;
 
         extern (Windows) alias btex_fptr = uint function(void*);
-        extern (C) uintptr_t _beginthreadex(void*, uint, btex_fptr, void*, uint, uint*) nothrow;
+        extern (C) uintptr_t _beginthreadex(void*, uint, btex_fptr, void*, uint, uint*) nothrow @nogc;
 
         //
         // Entry point for Windows threads
@@ -294,11 +310,6 @@ else version (Posix)
         {
             import core.sys.darwin.mach.thread_act;
             import core.sys.darwin.pthread : pthread_mach_thread_np;
-        }
-
-        version (GNU)
-        {
-            import gcc.builtins;
         }
 
         //
@@ -921,6 +932,17 @@ class Thread
         }
     }
 
+    /**
+     * Tests whether this thread is the main thread, i.e. the thread
+     * that initialized the runtime
+     *
+     * Returns:
+     *  true if the thread is the main thread
+     */
+    final @property bool isMainThread() nothrow @nogc
+    {
+        return this is sm_main;
+    }
 
     /**
      * Tests whether this thread is running.
@@ -1219,8 +1241,8 @@ class Thread
             }
             else
             {
-                // NOTE: pthread_setschedprio is not implemented on Darwin, FreeBSD or DragonFlyBSD, so use
-                //       the more complicated get/set sequence below.
+                // NOTE: pthread_setschedprio is not implemented on Darwin, FreeBSD, OpenBSD,
+                //       or DragonFlyBSD, so use the more complicated get/set sequence below.
                 int         policy;
                 sched_param param;
 
@@ -1777,7 +1799,7 @@ private:
     __gshared Thread    sm_tbeg;
     __gshared size_t    sm_tlen;
 
-    // can't use rt.util.array in public code
+    // can't use core.internal.util.array in public code
     __gshared Thread* pAboutToStart;
     __gshared size_t nAboutToStart;
 
@@ -2059,7 +2081,9 @@ extern (C) void thread_init() @nogc
     //       exist to be scanned at this point, it is sufficient for these
     //       functions to detect the condition and return immediately.
 
+    initLowlevelThreads();
     Thread.initLocks();
+
     // The Android VM runtime intercepts SIGUSR1 and apparently doesn't allow
     // its signal handler to run, so swap the two signals on Android, since
     // thread_resumeHandler does nothing.
@@ -2067,6 +2091,16 @@ extern (C) void thread_init() @nogc
 
     version (Darwin)
     {
+        // thread id different in forked child process
+        static extern(C) void initChildAfterFork()
+        {
+            auto thisThread = Thread.getThis();
+            thisThread.m_addr = pthread_self();
+            assert( thisThread.m_addr != thisThread.m_addr.init );
+            thisThread.m_tmach = pthread_mach_thread_np( thisThread.m_addr );
+            assert( thisThread.m_tmach != thisThread.m_tmach.init );
+       }
+        pthread_atfork(null, null, &initChildAfterFork);
     }
     else version (Posix)
     {
@@ -2143,6 +2177,8 @@ extern (C) void thread_term() @nogc
     _d_monitordelete_nogc(Thread.sm_main);
     if (typeid(Thread).initializer.ptr)
         _mainThreadStore[] = typeid(Thread).initializer[];
+    else
+        (cast(ubyte[])_mainThreadStore)[] = 0;
     Thread.sm_main = null;
 
     assert(Thread.sm_tbeg && Thread.sm_tlen == 1);
@@ -2153,6 +2189,7 @@ extern (C) void thread_term() @nogc
         Thread.pAboutToStart = null;
     }
     Thread.termLocks();
+    termLowlevelThreads();
 }
 
 
@@ -3044,7 +3081,7 @@ extern (C) void thread_scanAll( scope ScanAllThreadsFn scan ) nothrow
  * holding the lock already got suspended.
  *
  * The term and concept of a 'critical region' comes from
- * $(LINK2 https://github.com/mono/mono/blob/521f4a198e442573c400835ef19bbb36b60b0ebb/mono/metadata/sgen-gc.h#L925 Mono's SGen garbage collector).
+ * $(LINK2 https://github.com/mono/mono/blob/521f4a198e442573c400835ef19bbb36b60b0ebb/mono/metadata/sgen-gc.h#L925, Mono's SGen garbage collector).
  *
  * In:
  *  The calling thread must be attached to the runtime.
@@ -3107,7 +3144,7 @@ do
 * Throws:
 *  ThreadError.
 */
-private void onThreadError(string msg) nothrow
+private void onThreadError(string msg) nothrow @nogc
 {
     __gshared ThreadError error = new ThreadError(null);
     error.msg = msg;
@@ -3252,6 +3289,7 @@ extern (C) @nogc nothrow
     version (CRuntime_Glibc) int pthread_getattr_np(pthread_t thread, pthread_attr_t* attr);
     version (FreeBSD) int pthread_attr_get_np(pthread_t thread, pthread_attr_t* attr);
     version (NetBSD) int pthread_attr_get_np(pthread_t thread, pthread_attr_t* attr);
+    version (OpenBSD) int pthread_stackseg_np(pthread_t thread, stack_t* sinfo);
     version (DragonFlyBSD) int pthread_attr_get_np(pthread_t thread, pthread_attr_t* attr);
     version (Solaris) int thr_stksegment(stack_t* stk);
     version (CRuntime_Bionic) int pthread_getattr_np(pthread_t thid, pthread_attr_t* attr);
@@ -3302,7 +3340,9 @@ private void* getStackBottom() nothrow @nogc
         pthread_getattr_np(pthread_self(), &attr);
         pthread_attr_getstack(&attr, &addr, &size);
         pthread_attr_destroy(&attr);
-        return addr + size;
+        version (StackGrowsDown)
+            addr += size;
+        return addr;
     }
     else version (FreeBSD)
     {
@@ -3313,7 +3353,9 @@ private void* getStackBottom() nothrow @nogc
         pthread_attr_get_np(pthread_self(), &attr);
         pthread_attr_getstack(&attr, &addr, &size);
         pthread_attr_destroy(&attr);
-        return addr + size;
+        version (StackGrowsDown)
+            addr += size;
+        return addr;
     }
     else version (NetBSD)
     {
@@ -3324,7 +3366,16 @@ private void* getStackBottom() nothrow @nogc
         pthread_attr_get_np(pthread_self(), &attr);
         pthread_attr_getstack(&attr, &addr, &size);
         pthread_attr_destroy(&attr);
-        return addr + size;
+        version (StackGrowsDown)
+            addr += size;
+        return addr;
+    }
+    else version (OpenBSD)
+    {
+        stack_t stk;
+
+        pthread_stackseg_np(pthread_self(), &stk);
+        return stk.ss_sp;
     }
     else version (DragonFlyBSD)
     {
@@ -3335,7 +3386,9 @@ private void* getStackBottom() nothrow @nogc
         pthread_attr_get_np(pthread_self(), &attr);
         pthread_attr_getstack(&attr, &addr, &size);
         pthread_attr_destroy(&attr);
-        return addr + size;
+        version (StackGrowsDown)
+            addr += size;
+        return addr;
     }
     else version (Solaris)
     {
@@ -3352,7 +3405,9 @@ private void* getStackBottom() nothrow @nogc
         pthread_getattr_np(pthread_self(), &attr);
         pthread_attr_getstack(&attr, &addr, &size);
         pthread_attr_destroy(&attr);
-        return addr + size;
+        version (StackGrowsDown)
+            addr += size;
+        return addr;
     }
     else version (CRuntime_Musl)
     {
@@ -3362,7 +3417,9 @@ private void* getStackBottom() nothrow @nogc
         pthread_getattr_np(pthread_self(), &attr);
         pthread_attr_getstack(&attr, &addr, &size);
         pthread_attr_destroy(&attr);
-        return addr + size;
+        version (StackGrowsDown)
+            addr += size;
+        return addr;
     }
     else version (CRuntime_UClibc)
     {
@@ -3372,7 +3429,9 @@ private void* getStackBottom() nothrow @nogc
         pthread_getattr_np(pthread_self(), &attr);
         pthread_attr_getstack(&attr, &addr, &size);
         pthread_attr_destroy(&attr);
-        return addr + size;
+        version (StackGrowsDown)
+            addr += size;
+        return addr;
     }
     else
         static assert(false, "Platform not supported.");
@@ -3589,8 +3648,7 @@ private
         else version (Posix)
             version = AsmX86_Posix;
 
-        version (Darwin)
-            version = AlignFiberStackTo16Byte;
+        version = AlignFiberStackTo16Byte;
     }
     else version (D_InlineAsm_X86_64)
     {
@@ -3644,6 +3702,15 @@ private
             version = AsmARM_Posix;
             version = AsmExternal;
         }
+    }
+    else version (SPARC)
+    {
+        // NOTE: The SPARC ABI specifies only doubleword alignment.
+        version = AlignFiberStackTo16Byte;
+    }
+    else version (SPARC64)
+    {
+        version = AlignFiberStackTo16Byte;
     }
 
     version (Posix)
@@ -4221,13 +4288,6 @@ class Fiber
         return null;
     }
 
-    /// ditto
-    deprecated("Please pass Fiber.Rethrow.yes or .no instead of a boolean.")
-    final Throwable call( bool rethrow )
-    {
-        return rethrow ? call!(Rethrow.yes)() : call!(Rethrow.no);
-    }
-
     private void callImpl() nothrow @nogc
     in
     {
@@ -4562,6 +4622,7 @@ private:
             version (Posix) import core.sys.posix.sys.mman; // mmap
             version (FreeBSD) import core.sys.freebsd.sys.mman : MAP_ANON;
             version (NetBSD) import core.sys.netbsd.sys.mman : MAP_ANON;
+            version (OpenBSD) import core.sys.openbsd.sys.mman : MAP_ANON;
             version (DragonFlyBSD) import core.sys.dragonflybsd.sys.mman : MAP_ANON;
             version (CRuntime_Glibc) import core.sys.linux.sys.mman : MAP_ANON;
             version (Darwin) import core.sys.darwin.sys.mman : MAP_ANON;
@@ -5324,12 +5385,6 @@ unittest
     new Fiber({}).call(Fiber.Rethrow.no);
 }
 
-deprecated unittest
-{
-    new Fiber({}).call(true);
-    new Fiber({}).call(false);
-}
-
 version (Win32) {
     // broken on win32 under windows server 2012: bug 13821
 } else unittest {
@@ -5651,3 +5706,356 @@ version (Windows)
 else
 version (Posix)
     alias ThreadID = pthread_t;
+
+///////////////////////////////////////////////////////////////////////////////
+// lowlovel threading support
+private
+{
+    struct ll_ThreadData
+    {
+        ThreadID tid;
+        version (Windows)
+            void delegate() nothrow cbDllUnload;
+    }
+
+    __gshared size_t ll_nThreads;
+    __gshared ll_ThreadData* ll_pThreads;
+
+    __gshared align(Mutex.alignof) void[__traits(classInstanceSize, Mutex)] ll_lock;
+
+    @property Mutex lowlevelLock() nothrow @nogc
+    {
+        return cast(Mutex)ll_lock.ptr;
+    }
+
+    void initLowlevelThreads() @nogc
+    {
+        ll_lock[] = typeid(Mutex).initializer[];
+        lowlevelLock.__ctor();
+    }
+
+    void termLowlevelThreads() @nogc
+    {
+        lowlevelLock.__dtor();
+    }
+
+    void ll_removeThread(ThreadID tid) nothrow @nogc
+    {
+        lowlevelLock.lock_nothrow();
+        scope(exit) lowlevelLock.unlock_nothrow();
+
+        foreach (i; 0 .. ll_nThreads)
+        {
+            if (tid is ll_pThreads[i].tid)
+            {
+                import core.stdc.string : memmove;
+                memmove(ll_pThreads + i, ll_pThreads + i + 1, ll_ThreadData.sizeof * (ll_nThreads - i - 1));
+                --ll_nThreads;
+                // no need to minimize, next add will do
+                break;
+            }
+        }
+    }
+
+    version (Windows):
+    // If the runtime is dynamically loaded as a DLL, there is a problem with
+    // threads still running when the DLL is supposed to be unloaded:
+    //
+    // - with the VC runtime starting with VS2015 (i.e. using the Universal CRT)
+    //   a thread created with _beginthreadex increments the DLL reference count
+    //   and decrements it when done, so that the DLL is no longer unloaded unless
+    //   all the threads have terminated. With the DLL reference count held up
+    //   by a thread that is only stopped by a signal from a static destructor or
+    //   the termination of the runtime will cause the DLL to never be unloaded.
+    //
+    // - with the DigitalMars runtime and VC runtime up to VS2013, the thread
+    //   continues to run, but crashes once the DLL is unloaded from memory as
+    //   the code memory is no longer accessible. Stopping the threads is not possible
+    //   from within the runtime termination as it is invoked from
+    //   DllMain(DLL_PROCESS_DETACH) holding a lock that prevents threads from
+    //   terminating.
+    //
+    // Solution: start a watchdog thread that keeps the DLL reference count above 0 and
+    // checks it periodically. If it is equal to 1 (plus the number of started threads), no
+    // external references to the DLL exist anymore, threads can be stopped
+    // and runtime termination and DLL unload can be invoked via FreeLibraryAndExitThread.
+    // Note: runtime termination is then performed by a different thread than at startup.
+    //
+    // Note: if the DLL is never unloaded, process termination kills all threads
+    // and signals their handles before unconditionally calling DllMain(DLL_PROCESS_DETACH).
+
+    import core.sys.windows.winbase : FreeLibraryAndExitThread, GetModuleHandleExW,
+        GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS, GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT;
+    import core.sys.windows.windef : HMODULE;
+    import core.sys.windows.dll : dll_getRefCount;
+
+    version (CRuntime_Microsoft)
+        extern(C) extern __gshared ubyte msvcUsesUCRT; // from rt/msvc.c
+
+    package(core) __gshared bool thread_DLLProcessDetaching;
+
+    __gshared HMODULE ll_dllModule;
+    __gshared ThreadID ll_dllMonitorThread;
+
+    int ll_countLowLevelThreadsWithDLLUnloadCallback() nothrow
+    {
+        lowlevelLock.lock_nothrow();
+        scope(exit) lowlevelLock.unlock_nothrow();
+
+        int cnt = 0;
+        foreach (i; 0 .. ll_nThreads)
+            if (ll_pThreads[i].cbDllUnload)
+                cnt++;
+        return cnt;
+    }
+
+    bool ll_dllHasExternalReferences() nothrow
+    {
+        version (CRuntime_DigitalMars)
+            enum internalReferences = 1; // only the watchdog thread
+        else
+            int internalReferences =  msvcUsesUCRT ? 1 + ll_countLowLevelThreadsWithDLLUnloadCallback() : 1;
+
+        int refcnt = dll_getRefCount(ll_dllModule);
+        return refcnt > internalReferences;
+    }
+
+    private void monitorDLLRefCnt() nothrow
+    {
+        // this thread keeps the DLL alive until all external references are gone
+        while (ll_dllHasExternalReferences())
+        {
+            Thread.sleep(100.msecs);
+        }
+
+        // the current thread will be terminated below
+        ll_removeThread(GetCurrentThreadId());
+
+        for (;;)
+        {
+            ThreadID tid;
+            void delegate() nothrow cbDllUnload;
+            {
+                lowlevelLock.lock_nothrow();
+                scope(exit) lowlevelLock.unlock_nothrow();
+
+                foreach (i; 0 .. ll_nThreads)
+                    if (ll_pThreads[i].cbDllUnload)
+                    {
+                        cbDllUnload = ll_pThreads[i].cbDllUnload;
+                        tid = ll_pThreads[0].tid;
+                    }
+            }
+            if (!cbDllUnload)
+                break;
+            cbDllUnload();
+            assert(!findLowLevelThread(tid));
+        }
+
+        FreeLibraryAndExitThread(ll_dllModule, 0);
+    }
+
+    int ll_getDLLRefCount() nothrow @nogc
+    {
+        if (!ll_dllModule &&
+            !GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+                                cast(const(wchar)*) &ll_getDLLRefCount, &ll_dllModule))
+            return -1;
+        return dll_getRefCount(ll_dllModule);
+    }
+
+    bool ll_startDLLUnloadThread() nothrow @nogc
+    {
+        int refcnt = ll_getDLLRefCount();
+        if (refcnt < 0)
+            return false; // not a dynamically loaded DLL
+
+        if (ll_dllMonitorThread !is ThreadID.init)
+            return true;
+
+        // if a thread is created from a DLL, the MS runtime (starting with VC2015) increments the DLL reference count
+        // to avoid the DLL being unloaded while the thread is still running. Mimick this behavior here for all
+        // runtimes not doing this
+        version (CRuntime_DigitalMars)
+            enum needRef = true;
+        else
+            bool needRef = !msvcUsesUCRT;
+
+        if (needRef)
+        {
+            HMODULE hmod;
+            GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS, cast(const(wchar)*) &ll_getDLLRefCount, &hmod);
+        }
+
+        ll_dllMonitorThread = createLowLevelThread(() { monitorDLLRefCnt(); });
+        return ll_dllMonitorThread != ThreadID.init;
+    }
+}
+
+/**
+ * Create a thread not under control of the runtime, i.e. TLS module constructors are
+ * not run and the GC does not suspend it during a collection.
+ *
+ * Params:
+ *  dg        = delegate to execute in the created thread.
+ *  stacksize = size of the stack of the created thread. The default of 0 will select the
+ *              platform-specific default size.
+ *  cbDllUnload = Windows only: if running in a dynamically loaded DLL, this delegate will be called
+ *              if the DLL is supposed to be unloaded, but the thread is still running.
+ *              The thread must be terminated via `joinLowLevelThread` by the callback.
+ *
+ * Returns: the platform specific thread ID of the new thread. If an error occurs, `ThreadID.init`
+ *  is returned.
+ */
+ThreadID createLowLevelThread(void delegate() nothrow dg, uint stacksize = 0,
+                              void delegate() nothrow cbDllUnload = null) nothrow @nogc
+{
+    void delegate() nothrow* context = cast(void delegate() nothrow*)malloc(dg.sizeof);
+    *context = dg;
+
+    ThreadID tid;
+    version (Windows)
+    {
+        // the thread won't start until after the DLL is unloaded
+        if (thread_DLLProcessDetaching)
+            return ThreadID.init;
+
+        static extern (Windows) uint thread_lowlevelEntry(void* ctx) nothrow
+        {
+            auto dg = *cast(void delegate() nothrow*)ctx;
+            free(ctx);
+
+            dg();
+            ll_removeThread(GetCurrentThreadId());
+            return 0;
+        }
+
+        // see Thread.start() for why thread is created in suspended state
+        HANDLE hThread = cast(HANDLE) _beginthreadex(null, stacksize, &thread_lowlevelEntry,
+                                                     context, CREATE_SUSPENDED, &tid);
+        if (!hThread)
+            return ThreadID.init;
+    }
+
+    lowlevelLock.lock_nothrow();
+    scope(exit) lowlevelLock.unlock_nothrow();
+
+    ll_nThreads++;
+    ll_pThreads = cast(ll_ThreadData*)realloc(ll_pThreads, ll_ThreadData.sizeof * ll_nThreads);
+
+    version (Windows)
+    {
+        ll_pThreads[ll_nThreads - 1].tid = tid;
+        ll_pThreads[ll_nThreads - 1].cbDllUnload = cbDllUnload;
+        if (ResumeThread(hThread) == -1)
+            onThreadError("Error resuming thread");
+        CloseHandle(hThread);
+
+        if (cbDllUnload)
+            ll_startDLLUnloadThread();
+    }
+    else version (Posix)
+    {
+        static extern (C) void* thread_lowlevelEntry(void* ctx) nothrow
+        {
+            auto dg = *cast(void delegate() nothrow*)ctx;
+            free(ctx);
+
+            dg();
+            ll_removeThread(pthread_self());
+            return null;
+        }
+
+        pthread_attr_t  attr;
+
+        int rc;
+        if ((rc = pthread_attr_init(&attr)) != 0)
+            return ThreadID.init;
+        if (stacksize && (rc = pthread_attr_setstacksize(&attr, stacksize)) != 0)
+            return ThreadID.init;
+        if ((rc = pthread_create(&tid, &attr, &thread_lowlevelEntry, context)) != 0)
+            return ThreadID.init;
+
+        ll_pThreads[ll_nThreads - 1].tid = tid;
+    }
+    return tid;
+}
+
+/**
+ * Wait for a thread created with `createLowLevelThread` to terminate.
+ *
+ * Note: In a Windows DLL, if this function is called via DllMain with
+ *       argument DLL_PROCESS_DETACH, the thread is terminated forcefully
+ *       without proper cleanup as a deadlock would happen otherwise.
+ *
+ * Params:
+ *  tid = the thread ID returned by `createLowLevelThread`.
+ */
+void joinLowLevelThread(ThreadID tid) nothrow @nogc
+{
+    version (Windows)
+    {
+        HANDLE handle = OpenThreadHandle(tid);
+        if (!handle)
+            return;
+
+        if (thread_DLLProcessDetaching)
+        {
+            // When being called from DllMain/DLL_DETACH_PROCESS, threads cannot stop
+            //  due to the loader lock being held by the current thread.
+            // On the other hand, the thread must not continue to run as it will crash
+            //  if the DLL is unloaded. The best guess is to terminate it immediately.
+            TerminateThread(handle, 1);
+            WaitForSingleObject(handle, 10); // give it some time to terminate, but don't wait indefinitely
+        }
+        else
+            WaitForSingleObject(handle, INFINITE);
+        CloseHandle(handle);
+    }
+    else version (Posix)
+    {
+        if (pthread_join(tid, null) != 0)
+            onThreadError("Unable to join thread");
+    }
+}
+
+/**
+ * Check whether a thread was created by `createLowLevelThread`.
+ *
+ * Params:
+ *  tid = the platform specific thread ID.
+ *
+ * Returns: `true` if the thread was created by `createLowLevelThread` and is still running.
+ */
+bool findLowLevelThread(ThreadID tid) nothrow @nogc
+{
+    lowlevelLock.lock_nothrow();
+    scope(exit) lowlevelLock.unlock_nothrow();
+
+    foreach (i; 0 .. ll_nThreads)
+        if (tid is ll_pThreads[i].tid)
+            return true;
+    return false;
+}
+
+nothrow @nogc unittest
+{
+    struct TaskWithContect
+    {
+        shared int n = 0;
+        void run() nothrow
+        {
+            n.atomicOp!"+="(1);
+        }
+    }
+    TaskWithContect task;
+
+    ThreadID[8] tids;
+    for (int i = 0; i < tids.length; i++)
+        tids[i] = createLowLevelThread(&task.run);
+
+    for (int i = 0; i < tids.length; i++)
+        joinLowLevelThread(tids[i]);
+
+    assert(task.n == tids.length);
+}

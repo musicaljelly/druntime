@@ -198,12 +198,6 @@ else version (FreeBSD)
         ubyte *_base;
         int _size;
     }
-
-    union __mbstate_t // <sys/_types.h>
-    {
-        char[128]   _mbstate8;
-        long        _mbstateL;
-    }
 }
 else version (NetBSD)
 {
@@ -228,12 +222,6 @@ else version (NetBSD)
         ubyte *_base;
         int _size;
     }
-
-    union __mbstate_t // <sys/_types.h>
-    {
-        char[128]   _mbstate8;
-        long        _mbstateL;
-    }
 }
 else version (OpenBSD)
 {
@@ -257,12 +245,6 @@ else version (OpenBSD)
     {
         ubyte *_base;
         int _size;
-    }
-
-    union __mbstate_t // <sys/_types.h>
-    {
-        char[128]   __mbstate8;
-        long        __mbstateL;
     }
 }
 else version (DragonFlyBSD)
@@ -296,12 +278,6 @@ else version (DragonFlyBSD)
         SBUF_FINISHED   = 0x00020000,   // set by sbuf_finish()
         SBUF_DYNSTRUCT  = 0x00080000,   // sbuf must be freed
         SBUF_INSECTION  = 0x00100000,   // set by sbuf_start_section()
-    }
-
-    union __mbstate_t                   // <sys/stdint.h>
-    {
-        char[128]   _mbstate8;
-        long        _mbstateL;
     }
 }
 else version (Solaris)
@@ -449,12 +425,23 @@ else version (CRuntime_Glibc)
         void*   _markers;
         _IO_FILE* _chain;
         int     _fileno;
-        int     _blksize;
-        int     _old_offset;
+        int     _flags2;
+        ptrdiff_t _old_offset;
         ushort  _cur_column;
         byte    _vtable_offset;
-        char[1] _shortbuf;
+        char[1] _shortbuf = 0;
         void*   _lock;
+
+        ptrdiff_t _offset;
+
+        /*_IO_codecvt*/ void* _codecvt;
+        /*_IO_wide_data*/ void* _wide_data;
+        _IO_FILE *_freeres_list;
+        void *_freeres_buf;
+        size_t __pad5;
+        int _mode;
+
+        char[15 * int.sizeof - 4 * (void*).sizeof - size_t.sizeof] _unused2;
     }
 
     ///
@@ -466,7 +453,7 @@ else version (CRuntime_Musl)
 {
     union fpos_t
     {
-        char[16] __opaque;
+        char[16] __opaque = 0;
         double __align;
     }
     struct _IO_FILE;
@@ -518,6 +505,9 @@ else version (Darwin)
 }
 else version (FreeBSD)
 {
+    // Need to import wchar_ now since __mbstate_t now resides there
+    import core.stdc.wchar_ : mbstate_t;
+
     ///
     alias off_t fpos_t;
 
@@ -536,7 +526,7 @@ else version (FreeBSD)
         int     function(void*)                 _close;
         int     function(void*, char*, int)     _read;
         fpos_t  function(void*, fpos_t, int)    _seek;
-        int     function(void*, in char*, int)  _write;
+        int     function(void*, const scope char*, int)  _write;
 
         __sbuf          _ub;
         ubyte*          _up;
@@ -554,7 +544,7 @@ else version (FreeBSD)
         pthread_t       _fl_owner;
         int             _fl_count;
         int             _orientation;
-        __mbstate_t     _mbstate;
+        mbstate_t       _mbstate;
     }
 
     ///
@@ -582,7 +572,7 @@ else version (NetBSD)
         int     function(void*)                 _close;
         ssize_t     function(void*, char*, size_t)     _read;
         fpos_t  function(void*, fpos_t, int)    _seek;
-        ssize_t     function(void*, in char*, size_t)  _write;
+        ssize_t     function(void*, const scope char*, size_t)  _write;
 
         __sbuf          _ub;
         ubyte*          _up;
@@ -593,7 +583,7 @@ else version (NetBSD)
 
         int     function(void *)    _flush;
         /* Formerly used by fgetln/fgetwln; kept for binary compatibility */
-        char[__sbuf.sizeof - _flush.sizeof]    _lb_unused;
+        char[__sbuf.sizeof - _flush.sizeof]    _lb_unused = void;
 
 
         int             _blksize;
@@ -642,6 +632,8 @@ else version (OpenBSD)
     }
 
     ///
+    alias __sFILE _iobuf;
+    ///
     alias shared(__sFILE) FILE;
 }
 else version (DragonFlyBSD)
@@ -664,10 +656,7 @@ else version (DragonFlyBSD)
 }
 else version (Solaris)
 {
-    import core.stdc.wchar_ : __mbstate_t;
-
-    ///
-    alias mbstate_t = __mbstate_t;
+    import core.stdc.wchar_ : mbstate_t;
 
     ///
     alias c_long fpos_t;
@@ -696,8 +685,8 @@ else version (Solaris)
             char* _ptr;
             int _cnt;
             char* _base;
-            char _flag;
-            char _magic;
+            char _flag = 0;
+            char _magic = 0;
             ushort __flags; // __orientation:2
                             // __ionolock:1
                             // __seekable:1
@@ -780,7 +769,7 @@ else version (CRuntime_UClibc)
     struct __STDIO_FILE_STRUCT
     {
         ushort __modeflags;
-        char[2] __ungot_width;
+        char[2] __ungot_width = 0;
         int __filedes;
         char* __bufstart;
         char* __bufend;
@@ -791,7 +780,7 @@ else version (CRuntime_UClibc)
         __STDIO_FILE_STRUCT* __nextopen;
         void *__cookie;
         _IO_cookie_io_functions_t __gcs;
-        wchar_t[2] __ungot;
+        wchar_t[2] __ungot = 0;
         mbstate_t __state;
         void *__unused;
         int __user_locking;
@@ -1018,14 +1007,16 @@ else version (OpenBSD)
         _IONBF = 2,
     }
 
-    private extern shared FILE[] __sF;
-
+    private extern __gshared FILE[3] __sF;
+    @property auto __stdin()() { return &__sF[0]; }
+    @property auto __stdout()() { return &__sF[1]; }
+    @property auto __stderr()() { return &__sF[2]; }
     ///
-    shared stdin  = &__sF[0];
+    alias __stdin stdin;
     ///
-    shared stdout = &__sF[1];
+    alias __stdout stdout;
     ///
-    shared stderr = &__sF[2];
+    alias __stderr stderr;
 }
 else version (DragonFlyBSD)
 {
@@ -1315,35 +1306,7 @@ size_t fwrite(scope const void* ptr, size_t size, size_t nmemb, FILE* stream);
     c_long ftell(FILE* stream);
 }
 
-version (MinGW)
-{
-  // No unsafe pointer manipulation.
-  extern (D) @trusted
-  {
-    ///
-    void rewind()(FILE* stream)   { fseek(stream,0L,SEEK_SET); stream._flag = stream._flag & ~_IOERR; }
-    ///
-    pure void clearerr()(FILE* stream) { stream._flag = stream._flag & ~(_IOERR|_IOEOF); }
-    ///
-    pure int  feof()(FILE* stream)     { return stream._flag&_IOEOF; }
-    ///
-    pure int  ferror()(FILE* stream)   { return stream._flag&_IOERR; }
-  }
-  ///
-    int   __mingw_snprintf(scope char* s, size_t n, scope const char* fmt, ...);
-    ///
-    alias __mingw_snprintf _snprintf;
-    ///
-    alias __mingw_snprintf snprintf;
-
-    ///
-    int   __mingw_vsnprintf(scope char* s, size_t n, scope const char* format, va_list arg);
-    ///
-    alias __mingw_vsnprintf _vsnprintf;
-    ///
-    alias __mingw_vsnprintf vsnprintf;
-}
-else version (CRuntime_DigitalMars)
+version (CRuntime_DigitalMars)
 {
   // No unsafe pointer manipulation.
   extern (D) @trusted
@@ -1386,6 +1349,23 @@ else version (CRuntime_Microsoft)
     pure int  fileno(FILE* stream);
   }
 
+  version (MinGW)
+  {
+    int   __mingw_snprintf(scope char* s, size_t n, scope const char* fmt, ...);
+    ///
+    alias __mingw_snprintf _snprintf;
+    ///
+    alias __mingw_snprintf snprintf;
+
+    ///
+    int   __mingw_vsnprintf(scope char* s, size_t n, scope const char* format, va_list arg);
+    ///
+    alias __mingw_vsnprintf _vsnprintf;
+    ///
+    alias __mingw_vsnprintf vsnprintf;
+  }
+  else
+  {
     ///
     int _snprintf(scope char* s, size_t n, scope const char* format, ...);
     ///
@@ -1395,6 +1375,7 @@ else version (CRuntime_Microsoft)
     int _vsnprintf(scope char* s, size_t n, scope const char* format, va_list arg);
     ///
     int  vsnprintf(scope char* s, size_t n, scope const char* format, va_list arg);
+  }
 
     ///
     int _fputc_nolock(int c, FILE *fp);
@@ -1495,9 +1476,9 @@ else version (NetBSD)
   }
 
     ///
-    int  snprintf(char* s, size_t n, in char* format, ...);
+    int  snprintf(char* s, size_t n, const scope char* format, ...);
     ///
-    int  vsnprintf(char* s, size_t n, in char* format, va_list arg);
+    int  vsnprintf(char* s, size_t n, const scope char* format, va_list arg);
 }
 else version (OpenBSD)
 {
@@ -1510,17 +1491,17 @@ else version (OpenBSD)
     @trusted private
     {
         ///
-        pure void clearerr(FILE*);
-        alias __clearerr = clearerr;
+        pragma(mangle, "clearerr")
+        pure void __clearerr(FILE*);
         ///
-        pure int  feof(FILE*);
-        alias __feof = feof;
+        pragma(mangle, "feof")
+        pure int __feof(FILE*);
         ///
-        pure int  ferror(FILE*);
-        alias __ferror = ferror;
+        pragma(mangle, "ferror")
+        pure int __ferror(FILE*);
         ///
-        int  fileno(FILE*);
-        alias __fileno = fileno;
+        pragma(mangle, "fileno")
+        int __fileno(FILE*);
     }
 
     enum __SLBF = 0x0001;
@@ -1540,9 +1521,9 @@ else version (OpenBSD)
     enum __SALC = 0x4000;
     enum __SIGN = 0x8000;
 
-    extern int __isthreaded;
+    extern immutable __gshared int __isthreaded;
 
-    extern (D)
+    extern (D) @trusted
     {
         void __sclearerr()(FILE* p)
         {
@@ -1564,17 +1545,17 @@ else version (OpenBSD)
             return p._file;
         }
 
-        int clearerr()(FILE* file)
+        pure void clearerr()(FILE* file)
         {
-            return !__isthreaded ? __sclearerr(file) : __clearerr(file);
+            !__isthreaded ? __sclearerr(file) : __clearerr(file);
         }
 
-        int feof()(FILE* file)
+        pure int feof()(FILE* file)
         {
             return !__isthreaded ? __sfeof(file) : __feof(file);
         }
 
-        int ferror()(FILE* file)
+        pure int ferror()(FILE* file)
         {
             return !__isthreaded ? __sferror(file) : __ferror(file);
         }
@@ -1667,9 +1648,6 @@ else version (CRuntime_Bionic)
 }
 else version (CRuntime_Musl)
 {
-    import core.sys.posix.sys.types : off_t;
-    ///
-    int fseeko(FILE *, off_t, int);
     @trusted
     {
         ///

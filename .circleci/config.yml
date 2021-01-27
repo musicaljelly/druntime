@@ -3,8 +3,8 @@ jobs:
   build:
     working_directory: ~/druntime
     docker:
-      - image: circleci/node:4.8.2
-    parallelism: 2
+      - image: circleci/buildpack-deps:18.04
+    parallelism: 1
     steps:
       - checkout
       - run:
@@ -22,3 +22,6 @@ jobs:
       - run:
           command: ./.circleci/run.sh codecov
           name: Upload coverage files to CodeCov
+      - run:
+          command: ./.circleci/run.sh betterc
+          name: Run @betterC tests

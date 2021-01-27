@@ -59,15 +59,22 @@ ThreadID GetCurrentThreadID() nothrow
     return threadID;
 }
 
+GC initialize()
+{
+    auto p = cstdlib.malloc(__traits(classInstanceSize, ScrapheapGC));
+    if (!p)
+        onOutOfMemoryError();
+
+    auto init = typeid(ScrapheapGC).initializer();
+    assert(init.length == __traits(classInstanceSize, ScrapheapGC));
+    auto instance = cast(ScrapheapGC) memcpy(p, init.ptr, init.length);
+    instance.__ctor();
+
+    return instance;
+}
+
 class ScrapheapGC : GC
 {
-    __gshared Array!Root roots;
-    __gshared Array!Range ranges;
-
-    __gshared bool isInitialized = false;
-
-    immutable int NUM_TLS_HEAPS = 16;
-
     // Static so they can be thread-local
     static Heap[NUM_TLS_HEAPS] tls_heaps;
     static int tls_heapIndex = 0;
@@ -75,43 +82,21 @@ class ScrapheapGC : GC
     static size_t tls_highWatermark = 0;
     static size_t tls_highWatermarkThisFrame = 0;
 
-    static void initialize(ref GC gc)
+    ~this()
     {
-        if (!isInitialized)
-        {
-            auto p = cstdlib.malloc(__traits(classInstanceSize, ScrapheapGC));
-            if (!p)
-                onOutOfMemoryError();
+        // No need to free anything here, if this runs we're shutting down anyway.
+        // This does mean that each hotswap leaks a tiny amount of memory, since Game's empty scrapheap never gets cleaned up.
 
-            auto init = typeid(ScrapheapGC).initializer();
-            assert(init.length == __traits(classInstanceSize, ScrapheapGC));
-            auto instance = cast(ScrapheapGC) memcpy(p, init.ptr, init.length);
-            instance.__ctor();
+        // I think we can't free ourselves here anyway, based on the following comment found in conservative/gc.d:
 
-            gc = instance;
-            isInitialized = true;
-        }
-    }
-
-    static void finalize(ref GC gc)
-    {
-        // When this runs we're killing the game anyway, no need to bother freeing scrapheap memory.
-        auto instance = cast(ScrapheapGC) gc;
-        instance.Dtor();
-        cstdlib.free(cast(void*) instance);
+        // TODO: cannot free as memory is overwritten and
+        //  the monitor is still read in rt_finalize (called by destroy)
+        // cstdlib.free(cast(void*) this);
     }
 
     void initializeScrapheapOnThisThread(size_t initScrapheapSize) nothrow
     {
         tls_heaps[0].Init(initScrapheapSize);
-    }
-
-    this()
-    {
-    }
-
-    void Dtor()
-    {
     }
 
     void enable()

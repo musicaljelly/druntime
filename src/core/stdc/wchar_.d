@@ -34,19 +34,58 @@ version (CRuntime_Glibc)
         int __count;
         union ___value
         {
-            wint_t __wch;
+            wint_t __wch = 0;
             char[4] __wchb;
         }
         ___value __value;
     }
 }
-else version (OpenBSD)
+else version (FreeBSD)
 {
+    ///
+    union __mbstate_t // <sys/_types.h>
+    {
+        char[128]   _mbstate8 = 0;
+        long        _mbstateL;
+    }
+
+    ///
+    alias mbstate_t = __mbstate_t;
+}
+else version (NetBSD)
+{
+    ///
     union __mbstate_t
     {
+        int64_t   __mbstateL;
         char[128] __mbstate8;
+    }
+
+    ///
+    alias mbstate_t = __mbstate_t;
+}
+else version (OpenBSD)
+{
+    ///
+    union __mbstate_t
+    {
+        char[128] __mbstate8 = 0;
         int64_t   __mbstateL;
     }
+
+    ///
+    alias mbstate_t = __mbstate_t;
+}
+else version (DragonFlyBSD)
+{
+    ///
+    union __mbstate_t                   // <sys/stdint.h>
+    {
+        char[128]   _mbstate8 = 0;
+        long        _mbstateL;
+    }
+
+    ///
     alias mbstate_t = __mbstate_t;
 }
 else version (Solaris)
@@ -63,14 +102,17 @@ else version (Solaris)
             int[6] __filler;
         }
     }
+
+    ///
+    alias mbstate_t = __mbstate_t;
 }
 else version (CRuntime_UClibc)
 {
     ///
     struct mbstate_t
     {
-        wchar_t __mask;
-        wchar_t __wc;
+        wchar_t __mask = 0;
+        wchar_t __wc = 0;
     }
 }
 else
@@ -86,29 +128,29 @@ alias wchar_t wint_t;
 enum wchar_t WEOF = 0xFFFF;
 
 ///
-int fwprintf(FILE* stream, in wchar_t* format, ...);
+int fwprintf(FILE* stream, const scope wchar_t* format, ...);
 ///
-int fwscanf(FILE* stream, in wchar_t* format, ...);
+int fwscanf(FILE* stream, const scope wchar_t* format, ...);
 ///
-int swprintf(wchar_t* s, size_t n, in wchar_t* format, ...);
+int swprintf(wchar_t* s, size_t n, const scope wchar_t* format, ...);
 ///
-int swscanf(in wchar_t* s, in wchar_t* format, ...);
+int swscanf(const scope wchar_t* s, const scope wchar_t* format, ...);
 ///
-int vfwprintf(FILE* stream, in wchar_t* format, va_list arg);
+int vfwprintf(FILE* stream, const scope wchar_t* format, va_list arg);
 ///
-int vfwscanf(FILE* stream, in wchar_t* format, va_list arg);
+int vfwscanf(FILE* stream, const scope wchar_t* format, va_list arg);
 ///
-int vswprintf(wchar_t* s, size_t n, in wchar_t* format, va_list arg);
+int vswprintf(wchar_t* s, size_t n, const scope wchar_t* format, va_list arg);
 ///
-int vswscanf(in wchar_t* s, in wchar_t* format, va_list arg);
+int vswscanf(const scope wchar_t* s, const scope wchar_t* format, va_list arg);
 ///
-int vwprintf(in wchar_t* format, va_list arg);
+int vwprintf(const scope wchar_t* format, va_list arg);
 ///
-int vwscanf(in wchar_t* format, va_list arg);
+int vwscanf(const scope wchar_t* format, va_list arg);
 ///
-int wprintf(in wchar_t* format, ...);
+int wprintf(const scope wchar_t* format, ...);
 ///
-int wscanf(in wchar_t* format, ...);
+int wscanf(const scope wchar_t* format, ...);
 
 // No unsafe pointer manipulation.
 @trusted
@@ -122,7 +164,7 @@ int wscanf(in wchar_t* format, ...);
 ///
 wchar_t* fgetws(wchar_t* s, int n, FILE* stream);
 ///
-int      fputws(in wchar_t* s, FILE* stream);
+int      fputws(const scope wchar_t* s, FILE* stream);
 
 // No unsafe pointer manipulation.
 extern (D) @trusted
@@ -155,19 +197,19 @@ extern (D) @trusted
 }
 
 ///
-double  wcstod(in wchar_t* nptr, wchar_t** endptr);
+double  wcstod(const scope wchar_t* nptr, wchar_t** endptr);
 ///
-float   wcstof(in wchar_t* nptr, wchar_t** endptr);
+float   wcstof(const scope wchar_t* nptr, wchar_t** endptr);
 ///
-real    wcstold(in wchar_t* nptr, wchar_t** endptr);
+real    wcstold(const scope wchar_t* nptr, wchar_t** endptr);
 ///
-c_long  wcstol(in wchar_t* nptr, wchar_t** endptr, int base);
+c_long  wcstol(const scope wchar_t* nptr, wchar_t** endptr, int base);
 ///
-long    wcstoll(in wchar_t* nptr, wchar_t** endptr, int base);
+long    wcstoll(const scope wchar_t* nptr, wchar_t** endptr, int base);
 ///
-c_ulong wcstoul(in wchar_t* nptr, wchar_t** endptr, int base);
+c_ulong wcstoul(const scope wchar_t* nptr, wchar_t** endptr, int base);
 ///
-ulong   wcstoull(in wchar_t* nptr, wchar_t** endptr, int base);
+ulong   wcstoull(const scope wchar_t* nptr, wchar_t** endptr, int base);
 
 ///
 pure wchar_t* wcscpy(return wchar_t* s1, scope const wchar_t* s2);
@@ -214,7 +256,7 @@ pure wchar_t* wmemmove(return wchar_t* s1, scope const wchar_t* s2, size_t n);
 pure wchar_t* wmemset(return wchar_t* s, wchar_t c, size_t n);
 
 ///
-size_t wcsftime(wchar_t* s, size_t maxsize, in wchar_t* format, in tm* timeptr);
+size_t wcsftime(wchar_t* s, size_t maxsize, const scope wchar_t* format, const scope tm* timeptr);
 
 version (Windows)
 {
@@ -238,14 +280,14 @@ version (Windows)
 }
 
 ///
-int    mbsinit(in mbstate_t* ps);
+int    mbsinit(const scope mbstate_t* ps);
 ///
-size_t mbrlen(in char* s, size_t n, mbstate_t* ps);
+size_t mbrlen(const scope char* s, size_t n, mbstate_t* ps);
 ///
-size_t mbrtowc(wchar_t* pwc, in char* s, size_t n, mbstate_t* ps);
+size_t mbrtowc(wchar_t* pwc, const scope char* s, size_t n, mbstate_t* ps);
 ///
 size_t wcrtomb(char* s, wchar_t wc, mbstate_t* ps);
 ///
-size_t mbsrtowcs(wchar_t* dst, in char** src, size_t len, mbstate_t* ps);
+size_t mbsrtowcs(wchar_t* dst, const scope char** src, size_t len, mbstate_t* ps);
 ///
-size_t wcsrtombs(char* dst, in wchar_t** src, size_t len, mbstate_t* ps);
+size_t wcsrtombs(char* dst, const scope wchar_t** src, size_t len, mbstate_t* ps);

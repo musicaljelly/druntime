@@ -96,9 +96,9 @@ struct flock
     pid_t   l_pid;
 }
 
-int creat(in char*, mode_t);
+int creat(const scope char*, mode_t);
 int fcntl(int, int, ...);
-int open(in char*, int, ...);
+int open(const scope char*, int, ...);
 */
 version (CRuntime_Glibc)
 {
@@ -116,6 +116,13 @@ version (CRuntime_Glibc)
   }
   else version (AArch64)
   {
+    enum F_GETLK        = 5;
+    enum F_SETLK        = 6;
+    enum F_SETLKW       = 7;
+  }
+  else version (SystemZ)
+  {
+    static assert(off_t.sizeof == 8);
     enum F_GETLK        = 5;
     enum F_SETLK        = 6;
     enum F_SETLKW       = 7;
@@ -265,16 +272,16 @@ version (CRuntime_Glibc)
 
     static if ( __USE_FILE_OFFSET64 )
     {
-        int   creat64(in char*, mode_t);
+        int   creat64(const scope char*, mode_t);
         alias creat64 creat;
 
-        int   open64(in char*, int, ...);
+        int   open64(const scope char*, int, ...);
         alias open64 open;
     }
     else
     {
-        int   creat(in char*, mode_t);
-        int   open(in char*, int, ...);
+        int   creat(const scope char*, mode_t);
+        int   open(const scope char*, int, ...);
     }
 
     enum AT_SYMLINK_NOFOLLOW = 0x100;
@@ -324,8 +331,8 @@ else version (Darwin)
         short   l_whence;
     }
 
-    int creat(in char*, mode_t);
-    int open(in char*, int, ...);
+    int creat(const scope char*, mode_t);
+    int open(const scope char*, int, ...);
 }
 else version (FreeBSD)
 {
@@ -385,8 +392,8 @@ else version (FreeBSD)
         short   l_whence;
     }
 
-    int creat(in char*, mode_t);
-    int open(in char*, int, ...);
+    int creat(const scope char*, mode_t);
+    int open(const scope char*, int, ...);
 
     enum AT_SYMLINK_NOFOLLOW = 0x200;
     enum AT_FDCWD = -100;
@@ -450,8 +457,8 @@ else version (OpenBSD)
         short   l_whence;
     }
 
-    int creat(in char*, mode_t);
-    int open(in char*, int, ...);
+    int creat(const scope char*, mode_t);
+    int open(const scope char*, int, ...);
 
     enum AT_FDCWD            = -100;
 
@@ -510,8 +517,8 @@ else version (NetBSD)
     }
 
 
-    int creat(in char*, mode_t);
-    int open(in char*, int, ...);
+    int creat(const scope char*, mode_t);
+    int open(const scope char*, int, ...);
 }
 else version (DragonFlyBSD)
 {
@@ -597,8 +604,8 @@ else version (DragonFlyBSD)
 
     alias oflock = flock;
 
-    int creat(in char*, mode_t);
-    int open(in char*, int, ...);
+    int creat(const scope char*, mode_t);
+    int open(const scope char*, int, ...);
     //int fcntl(int, int, ...);  /*defined below*/
     //int flock(int, int);
 }
@@ -687,8 +694,8 @@ else version (Solaris)
 
     version (D_LP64)
     {
-        int creat(in char*, mode_t);
-        int open(in char*, int, ...);
+        int creat(const scope char*, mode_t);
+        int open(const scope char*, int, ...);
 
         static if (__USE_LARGEFILE64)
         {
@@ -700,16 +707,16 @@ else version (Solaris)
     {
         static if (__USE_LARGEFILE64)
         {
-            int creat64(in char*, mode_t);
+            int creat64(const scope char*, mode_t);
             alias creat64 creat;
 
-            int open64(in char*, int, ...);
+            int open64(const scope char*, int, ...);
             alias open64 open;
         }
         else
         {
-            int creat(in char*, mode_t);
-            int open(in char*, int, ...);
+            int creat(const scope char*, mode_t);
+            int open(const scope char*, int, ...);
         }
     }
 }
@@ -765,8 +772,8 @@ else version (CRuntime_Bionic)
         pid_t   l_pid;
     }
 
-    int   creat(in char*, mode_t);
-    int   open(in char*, int, ...);
+    int   creat(const scope char*, mode_t);
+    int   open(const scope char*, int, ...);
 
     enum AT_FDCWD = -100;
 }
@@ -828,7 +835,7 @@ else version (CRuntime_Musl)
         pid_t   l_pid;
     }
     enum FD_CLOEXEC     = 1;
-    int open(in char*, int, ...);
+    int open(const scope char*, int, ...);
 
     enum AT_FDCWD = -100;
 }
@@ -868,7 +875,7 @@ else version (CRuntime_UClibc)
     enum F_UNLCK        = 2;
     enum F_WRLCK        = 1;
 
-    version (X86_64)
+    version (X86_Any)
     {
         enum O_CREAT        = 0x40;     // octal     0100
         enum O_EXCL         = 0x80;     // octal     0200
@@ -877,12 +884,13 @@ else version (CRuntime_UClibc)
 
         enum O_APPEND       = 0x400;    // octal    02000
         enum O_NONBLOCK     = 0x800;    // octal    04000
+        enum O_CLOEXEC      = 0x80000;  // octal    02000000
         enum O_SYNC         = 0x1000;   // octal    010000
         enum O_NDELAY       = O_NONBLOCK;
         enum O_FSYNC        = O_SYNC;
         enum O_ASYNC        = 0x2000;   // octal    020000
     }
-    else version (MIPS32)
+    else version (MIPS_Any)
     {
         enum O_CREAT        = 0x0100;
         enum O_EXCL         = 0x0400;
@@ -892,11 +900,12 @@ else version (CRuntime_UClibc)
         enum O_APPEND       = 0x0008;
         enum O_SYNC         = 0x0010;
         enum O_NONBLOCK     = 0x0080;
+        enum O_CLOEXEC      = 0x80000;  // octal    02000000
         enum O_NDELAY       = O_NONBLOCK;
         enum O_FSYNC        = O_SYNC;
         enum O_ASYNC        = 0x1000;
     }
-    else version (ARM)
+    else version (ARM_Any)
     {
         enum O_CREAT        = 0x40;     // octal     0100
         enum O_EXCL         = 0x80;     // octal     0200
@@ -905,6 +914,7 @@ else version (CRuntime_UClibc)
 
         enum O_APPEND       = 0x400;    // octal    02000
         enum O_NONBLOCK     = 0x800;    // octal    04000
+        enum O_CLOEXEC      = 0x80000;  // octal    02000000
         enum O_SYNC         = 0x1000;   // octal    010000
         enum O_NDELAY       = O_NONBLOCK;
         enum O_FSYNC        = O_SYNC;
@@ -937,16 +947,16 @@ else version (CRuntime_UClibc)
 
     static if ( __USE_FILE_OFFSET64 )
     {
-        int   creat64(in char*, mode_t);
+        int   creat64(const scope char*, mode_t);
         alias creat64 creat;
 
-        int   open64(in char*, int, ...);
+        int   open64(const scope char*, int, ...);
         alias open64 open;
     }
     else
     {
-        int   creat(in char*, mode_t);
-        int   open(in char*, int, ...);
+        int   creat(const scope char*, mode_t);
+        int   open(const scope char*, int, ...);
     }
 
     enum AT_SYMLINK_NOFOLLOW    = 0x100;
@@ -957,9 +967,9 @@ else
     static assert(false, "Unsupported platform");
 }
 
-//int creat(in char*, mode_t);
+//int creat(const scope char*, mode_t);
 int fcntl(int, int, ...);
-//int open(in char*, int, ...);
+//int open(const scope char*, int, ...);
 
 // Generic Posix fallocate
 int posix_fallocate(int, off_t, off_t);

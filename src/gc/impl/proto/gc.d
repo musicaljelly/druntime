@@ -1,8 +1,7 @@
 
 module gc.impl.proto.gc;
 
-import gc.config;
-import gc.gcinterface;
+import core.gc.gcinterface;
 
 import rt.util.container.array;
 
@@ -25,8 +24,8 @@ private
     extern (C) void*    gc_realloc( void* p, size_t sz, uint ba = 0, const TypeInfo = null ) pure nothrow;
     extern (C) size_t   gc_reserve( size_t sz ) nothrow;
 
-    extern (C) void gc_addRange( void* p, size_t sz, const TypeInfo ti = null ) nothrow @nogc;
-    extern (C) void gc_addRoot( void* p ) nothrow @nogc;
+    extern (C) void gc_addRange(const void* p, size_t sz, const TypeInfo ti = null ) nothrow @nogc;
+    extern (C) void gc_addRoot(const void* p ) nothrow @nogc;
 }
 
 class ProtoGC : GC
@@ -161,6 +160,12 @@ class ProtoGC : GC
     }
 
 
+    core.memory.GC.ProfileStats profileStats() nothrow
+    {
+        return typeof(return).init;
+    }
+
+
     void addRoot(void* p) nothrow @nogc
     {
         roots.insertBack(Root(p));
@@ -227,7 +232,7 @@ class ProtoGC : GC
         return 0;
     }
 
-    void runFinalizers(in void[] segment) nothrow
+    void runFinalizers(const scope void[] segment) nothrow
     {
     }
 

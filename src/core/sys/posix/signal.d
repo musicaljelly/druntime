@@ -847,16 +847,16 @@ SI_ASYNCIO
 SI_MESGQ
 
 int kill(pid_t, int);
-int sigaction(int, in sigaction_t*, sigaction_t*);
+int sigaction(int, const scope sigaction_t*, sigaction_t*);
 int sigaddset(sigset_t*, int);
 int sigdelset(sigset_t*, int);
 int sigemptyset(sigset_t*);
 int sigfillset(sigset_t*);
-int sigismember(in sigset_t*, int);
+int sigismember(const scope sigset_t*, int);
 int sigpending(sigset_t*);
-int sigprocmask(int, in sigset_t*, sigset_t*);
-int sigsuspend(in sigset_t*);
-int sigwait(in sigset_t*, int*);
+int sigprocmask(int, const scope sigset_t*, sigset_t*);
+int sigsuspend(const scope sigset_t*);
+int sigwait(const scope sigset_t*, int*);
 */
 
 nothrow @nogc
@@ -980,16 +980,16 @@ version (CRuntime_Glibc)
     }
 
     int kill(pid_t, int);
-    int sigaction(int, in sigaction_t*, sigaction_t*);
+    int sigaction(int, const scope sigaction_t*, sigaction_t*);
     int sigaddset(sigset_t*, int);
     int sigdelset(sigset_t*, int);
     int sigemptyset(sigset_t*);
     int sigfillset(sigset_t*);
-    int sigismember(in sigset_t*, int);
+    int sigismember(const scope sigset_t*, int);
     int sigpending(sigset_t*);
-    int sigprocmask(int, in sigset_t*, sigset_t*);
-    int sigsuspend(in sigset_t*);
-    int sigwait(in sigset_t*, int*);
+    int sigprocmask(int, const scope sigset_t*, sigset_t*);
+    int sigsuspend(const scope sigset_t*);
+    int sigwait(const scope sigset_t*, int*);
 }
 else version (Darwin)
 {
@@ -1032,16 +1032,16 @@ else version (Darwin)
     enum SI_MESGQ   = 0x10005;
 
     int kill(pid_t, int);
-    int sigaction(int, in sigaction_t*, sigaction_t*);
+    int sigaction(int, const scope sigaction_t*, sigaction_t*);
     int sigaddset(sigset_t*, int);
     int sigdelset(sigset_t*, int);
     int sigemptyset(sigset_t*);
     int sigfillset(sigset_t*);
-    int sigismember(in sigset_t*, int);
+    int sigismember(const scope sigset_t*, int);
     int sigpending(sigset_t*);
-    int sigprocmask(int, in sigset_t*, sigset_t*);
-    int sigsuspend(in sigset_t*);
-    int sigwait(in sigset_t*, int*);
+    int sigprocmask(int, const scope sigset_t*, sigset_t*);
+    int sigsuspend(const scope sigset_t*);
+    int sigwait(const scope sigset_t*, int*);
 }
 else version (FreeBSD)
 {
@@ -1110,16 +1110,16 @@ else version (FreeBSD)
     enum SI_MESGQ   = 0x10005;
 
     int kill(pid_t, int);
-    int sigaction(int, in sigaction_t*, sigaction_t*);
+    int sigaction(int, const scope sigaction_t*, sigaction_t*);
     int sigaddset(sigset_t*, int);
     int sigdelset(sigset_t*, int);
     int sigemptyset(sigset_t *);
     int sigfillset(sigset_t *);
-    int sigismember(in sigset_t *, int);
+    int sigismember(const scope sigset_t*, int);
     int sigpending(sigset_t *);
-    int sigprocmask(int, in sigset_t*, sigset_t*);
-    int sigsuspend(in sigset_t *);
-    int sigwait(in sigset_t*, int*);
+    int sigprocmask(int, const scope sigset_t*, sigset_t*);
+    int sigsuspend(const scope sigset_t*);
+    int sigwait(const scope sigset_t*, int*);
 }
 else version (NetBSD)
 {
@@ -1136,55 +1136,57 @@ else version (NetBSD)
     enum SIG_UNBLOCK = 2;
     enum SIG_SETMASK = 3;
 
-    union sigval_t {
-        int     sival_int;
-        void    *sival_ptr;
-    };
-    struct _rt{
-        pid_t   _pid;
-        uid_t   _uid;
-        sigval_t        _value;
-    };
-    struct _child{
-        pid_t   _pid;
-        uid_t   _uid;
-        int     _status;
-        clock_t _utime;
-        clock_t _stime;
-    };
-   struct _fault{
-        void   *_addr;
-        int     _trap;
-        int     _trap2;
-        int     _trap3;
-    };
-    struct _poll{
-        long    _band;
-        int     _fd;
-    };
-    union _reason{
-        _rt rt;
-        _child child;
-        _fault fault;
-        _poll poll;
-    };
-    struct _ksiginfo {
+    union sigval_t
+    {
+        int   sival_int;
+        void* sival_ptr;
+    }
+
+    struct _ksiginfo
+    {
         int     _signo;
         int     _code;
         int     _errno;
-/+#ifdef _LP64
-        /* In _LP64 the union starts on an 8-byte boundary. */
-        int     _pad;
-#endif+/
-        _reason reason;
-    };
+        version (D_LP64)
+            int _pad;
 
+        union reason_t
+        {
+            struct rt_t
+            {
+                pid_t    _pid;
+                uid_t    _uid;
+                sigval_t _value;
+            } rt_t _rt;
+            struct child_t
+            {
+                pid_t   _pid;
+                uid_t   _uid;
+                int     _status;
+                clock_t _utime;
+                clock_t _stime;
+            } child_t _child;
+            struct fault_t
+            {
+                void* _addr;
+                int   _trap;
+                int   _trap2;
+                int   _trap3;
+            } fault_t fault;
+            struct poll_t
+            {
+                c_long _band;
+                int  _fd;
+            } poll_t _poll;
+        }
+        reason_t _reason;
+    }
 
     union siginfo_t
     {
-        ubyte[128] si_pad;/* Total size; for future expansion */
+        ubyte[128] si_pad;
         _ksiginfo _info;
-        @property ref c_long si_band() return { return _info.reason.poll._band; }
+        @property ref c_long si_band() return { return _info._reason._poll._band; }
     }
 
     enum SI_USER    = 0;
@@ -1194,16 +1196,16 @@ else version (NetBSD)
     enum SI_MESGQ   = -4;
 
     int kill(pid_t, int);
-    int __sigaction14(int, in sigaction_t*, sigaction_t*);
+    int __sigaction14(int, const scope sigaction_t*, sigaction_t*);
     int __sigaddset14(sigset_t*, int);
     int __sigdelset14(sigset_t*, int);
     int __sigemptyset14(sigset_t *);
     int __sigfillset14(sigset_t *);
-    int __sigismember14(in sigset_t *, int);
+    int __sigismember14(const scope sigset_t*, int);
     int __sigpending14(sigset_t *);
-    int __sigprocmask14(int, in sigset_t*, sigset_t*);
-    int __sigsuspend14(in sigset_t *);
-    int sigwait(in sigset_t*, int*);
+    int __sigprocmask14(int, const scope sigset_t*, sigset_t*);
+    int __sigsuspend14(const scope sigset_t*);
+    int sigwait(const scope sigset_t*, int*);
 
     alias __sigaction14 sigaction;
     alias __sigaddset14 sigaddset;
@@ -1280,16 +1282,16 @@ else version (OpenBSD)
     enum SI_TIMER  = -3;
 
     int kill(pid_t, int);
-    int sigaction(int, in sigaction_t*, sigaction_t*);
+    int sigaction(int, const scope sigaction_t*, sigaction_t*);
     int sigaddset(sigset_t*, int);
     int sigdelset(sigset_t*, int);
     int sigemptyset(sigset_t *);
     int sigfillset(sigset_t *);
-    int sigismember(in sigset_t *, int);
+    int sigismember(const scope sigset_t*, int);
     int sigpending(sigset_t *);
-    int sigprocmask(int, in sigset_t*, sigset_t*);
-    int sigsuspend(in sigset_t *);
-    int sigwait(in sigset_t*, int*);
+    int sigprocmask(int, const scope sigset_t*, sigset_t*);
+    int sigsuspend(const scope sigset_t*);
+    int sigwait(const scope sigset_t*, int*);
 }
 else version (DragonFlyBSD)
 {
@@ -1329,16 +1331,16 @@ else version (DragonFlyBSD)
     enum SI_MESGQ     = -4;
 
     int kill(pid_t, int);
-    int sigaction(int, in sigaction_t*, sigaction_t*);
+    int sigaction(int, const scope sigaction_t*, sigaction_t*);
     int sigaddset(sigset_t*, int);
     int sigdelset(sigset_t*, int);
     int sigemptyset(sigset_t *);
     int sigfillset(sigset_t *);
-    int sigismember(in sigset_t *, int);
+    int sigismember(const scope sigset_t*, int);
     int sigpending(sigset_t *);
-    int sigprocmask(int, in sigset_t*, sigset_t*);
-    int sigsuspend(in sigset_t *);
-    int sigwait(in sigset_t*, int*);
+    int sigprocmask(int, const scope sigset_t*, sigset_t*);
+    int sigsuspend(const scope sigset_t*);
+    int sigwait(const scope sigset_t*, int*);
 }
 else version (Solaris)
 {
@@ -1418,8 +1420,8 @@ else version (Solaris)
                 caddr_t __faddr;
                 timestruc_t __tstamp;
                 short __syscall;
-                char __nsysarg;
-                char __fault;
+                char __nsysarg = 0;
+                char __fault = 0;
                 c_long[8] __sysarg;
                 int[10] __mstate;
             }
@@ -1438,16 +1440,16 @@ else version (Solaris)
     }
 
     int kill(pid_t, int);
-    int sigaction(int, in sigaction_t*, sigaction_t*);
+    int sigaction(int, const scope sigaction_t*, sigaction_t*);
     int sigaddset(sigset_t*, int);
     int sigdelset(sigset_t*, int);
     int sigemptyset(sigset_t*);
     int sigfillset(sigset_t*);
-    int sigismember(in sigset_t*, int);
+    int sigismember(const scope sigset_t*, int);
     int sigpending(sigset_t*);
-    int sigprocmask(int, in sigset_t*, sigset_t*);
-    int sigsuspend(in sigset_t*);
-    int sigwait(in sigset_t*, int*);
+    int sigprocmask(int, const scope sigset_t*, sigset_t*);
+    int sigsuspend(const scope sigset_t*);
+    int sigwait(const scope sigset_t*, int*);
 }
 else version (CRuntime_Bionic)
 {
@@ -1552,7 +1554,7 @@ else version (CRuntime_Bionic)
     }
 
     int kill(pid_t, int);
-    int sigaction(int, in sigaction_t*, sigaction_t*);
+    int sigaction(int, const scope sigaction_t*, sigaction_t*);
 
     // These functions are defined inline in bionic.
     int sigaddset(sigset_t* set, int signum)
@@ -1583,33 +1585,59 @@ else version (CRuntime_Bionic)
     }
 
     int sigpending(sigset_t*);
-    int sigprocmask(int, in sigset_t*, sigset_t*);
-    int sigsuspend(in sigset_t*);
-    int sigwait(in sigset_t*, int*);
+    int sigprocmask(int, const scope sigset_t*, sigset_t*);
+    int sigsuspend(const scope sigset_t*);
+    int sigwait(const scope sigset_t*, int*);
 }
 else version (CRuntime_Musl)
 {
-    struct sigset_t {
-        ulong[128/long.sizeof] __bits;
+    struct sigset_t
+    {
+        c_ulong[128/c_long.sizeof] __bits;
     }
 
-    enum SIG_BLOCK      = 0;
-    enum SIG_UNBLOCK    = 1;
-    enum SIG_SETMASK    = 2;
+    version (MIPS_Any)
+    {
+        enum SIG_BLOCK      = 1;
+        enum SIG_UNBLOCK    = 2;
+        enum SIG_SETMASK    = 3;
+    }
+    else
+    {
+        enum SIG_BLOCK      = 0;
+        enum SIG_UNBLOCK    = 1;
+        enum SIG_SETMASK    = 2;
+    }
 
-    struct siginfo_t {
-        int si_signo, si_errno, si_code;
-        union __si_fields_t {
-            char[128 - 2*int.sizeof - long.sizeof] __pad;
-            struct __si_common_t {
-                union __first_t {
-                    struct __piduid_t {
+    struct siginfo_t
+    {
+        int si_signo;
+        version (MIPS_Any)  // __SI_SWAP_ERRNO_CODE
+        {
+            int si_code;
+            int si_errno;
+        }
+        else
+        {
+            int si_errno;
+            int si_code;
+        }
+        union __si_fields_t
+        {
+            char[128 - 2*int.sizeof - c_long.sizeof] __pad = 0;
+            struct __si_common_t
+            {
+                union __first_t
+                {
+                    struct __piduid_t
+                    {
                         pid_t si_pid;
                         uid_t si_uid;
                     }
                     __piduid_t __piduid;
 
-                    struct __timer_t {
+                    struct __timer_t
+                    {
                         int si_timerid;
                         int si_overrun;
                     }
@@ -1617,11 +1645,14 @@ else version (CRuntime_Musl)
                 }
                 __first_t __first;
 
-                union __second_t {
+                union __second_t
+                {
                     sigval si_value;
-                    struct __sigchld_t {
+                    struct __sigchld_t
+                    {
                         int si_status;
-                        clock_t si_utime, si_stime;
+                        clock_t si_utime;
+                        clock_t si_stime;
                     }
                     __sigchld_t __sigchld;
                 }
@@ -1629,11 +1660,14 @@ else version (CRuntime_Musl)
             }
             __si_common_t __si_common;
 
-            struct __sigfault_t {
+            struct __sigfault_t
+            {
                 void *si_addr;
                 short si_addr_lsb;
-                union __first_t {
-                    struct __addr_bnd_t {
+                union __first_t
+                {
+                    struct __addr_bnd_t
+                    {
                         void *si_lower;
                         void *si_upper;
                     }
@@ -1644,13 +1678,15 @@ else version (CRuntime_Musl)
             }
             __sigfault_t __sigfault;
 
-            struct __sigpoll_t {
-                long si_band;
+            struct __sigpoll_t
+            {
+                c_long si_band;
                 int si_fd;
             }
             __sigpoll_t __sigpoll;
 
-            struct __sigsys_t {
+            struct __sigsys_t
+            {
                 void *si_call_addr;
                 int si_syscall;
                 uint si_arch;
@@ -1661,16 +1697,16 @@ else version (CRuntime_Musl)
     }
 
     int kill(pid_t, int);
-    int sigaction(int, in sigaction_t*, sigaction_t*);
+    int sigaction(int, const scope sigaction_t*, sigaction_t*);
     int sigaddset(sigset_t*, int);
     int sigdelset(sigset_t*, int);
     int sigemptyset(sigset_t*);
     int sigfillset(sigset_t*);
-    int sigismember(in sigset_t*, int);
+    int sigismember(const scope sigset_t*, int);
     int sigpending(sigset_t*);
-    int sigprocmask(int, in sigset_t*, sigset_t*);
-    int sigsuspend(in sigset_t*);
-    int sigwait(in sigset_t*, int*);
+    int sigprocmask(int, const scope sigset_t*, sigset_t*);
+    int sigsuspend(const scope sigset_t*);
+    int sigwait(const scope sigset_t*, int*);
 }
 else version (CRuntime_UClibc)
 {
@@ -1904,16 +1940,16 @@ else version (CRuntime_UClibc)
     }
 
     int kill(pid_t, int);
-    int sigaction(int, in sigaction_t*, sigaction_t*);
+    int sigaction(int, const scope sigaction_t*, sigaction_t*);
     int sigaddset(sigset_t*, int);
     int sigdelset(sigset_t*, int);
     int sigemptyset(sigset_t*);
     int sigfillset(sigset_t*);
-    int sigismember(in sigset_t*, int);
+    int sigismember(const scope sigset_t*, int);
     int sigpending(sigset_t*);
-    int sigprocmask(int, in sigset_t*, sigset_t*);
-    int sigsuspend(in sigset_t*);
-    int sigwait(in sigset_t*, int*);
+    int sigprocmask(int, const scope sigset_t*, sigset_t*);
+    int sigsuspend(const scope sigset_t*);
+    int sigwait(const scope sigset_t*, int*);
 }
 else
 {
@@ -2006,7 +2042,7 @@ sigfn_t bsd_signal(int sig, sigfn_t func);
 sigfn_t sigset(int sig, sigfn_t func);
 
 int killpg(pid_t, int);
-int sigaltstack(in stack_t*, stack_t*);
+int sigaltstack(const scope stack_t*, stack_t*);
 int sighold(int);
 int sigignore(int);
 int siginterrupt(int, int);
@@ -2198,7 +2234,7 @@ version (CRuntime_Glibc)
     sigfn_t2 sigset(int sig, sigfn_t2 func);
 
     int killpg(pid_t, int);
-    int sigaltstack(in stack_t*, stack_t*);
+    int sigaltstack(const scope stack_t*, stack_t*);
     int sighold(int);
     int sigignore(int);
     int siginterrupt(int, int);
@@ -2308,7 +2344,7 @@ else version (Darwin)
     sigfn_t2 sigset(int sig, sigfn_t2 func);
 
     int killpg(pid_t, int);
-    int sigaltstack(in stack_t*, stack_t*);
+    int sigaltstack(const scope stack_t*, stack_t*);
     int sighold(int);
     int sigignore(int);
     int siginterrupt(int, int);
@@ -2432,7 +2468,7 @@ else version (FreeBSD)
     sigfn_t2 sigset(int sig, sigfn_t2 func);
 
     int killpg(pid_t, int);
-    int sigaltstack(in stack_t*, stack_t*);
+    int sigaltstack(const scope stack_t*, stack_t*);
     int sighold(int);
     int sigignore(int);
     int siginterrupt(int, int);
@@ -2556,7 +2592,7 @@ else version (NetBSD)
     sigfn_t2 sigset(int sig, sigfn_t2 func);
 
     int killpg(pid_t, int);
-    int sigaltstack(in stack_t*, stack_t*);
+    int sigaltstack(const scope stack_t*, stack_t*);
     int sighold(int);
     int sigignore(int);
     int siginterrupt(int, int);
@@ -2675,7 +2711,7 @@ else version (OpenBSD)
   nothrow:
   @nogc:
     int killpg(pid_t, int);
-    int sigaltstack(in stack_t*, stack_t*);
+    int sigaltstack(const scope stack_t*, stack_t*);
     int siginterrupt(int, int);
     int sigpause(int);
 }
@@ -2796,7 +2832,7 @@ else version (DragonFlyBSD)
     sigfn_t2 sigset(int sig, sigfn_t2 func);
 
     int killpg(pid_t, int);
-    int sigaltstack(in stack_t*, stack_t*);
+    int sigaltstack(const scope stack_t*, stack_t*);
     int sighold(int);
     int sigignore(int);
     int siginterrupt(int, int);
@@ -2920,7 +2956,7 @@ else version (Solaris)
     sigfn_t2 sigset(int sig, sigfn_t2 func);
 
     int killpg(pid_t, int);
-    int sigaltstack(in stack_t*, stack_t*);
+    int sigaltstack(const scope stack_t*, stack_t*);
     int sighold(int);
     int sigignore(int);
     int siginterrupt(int, int);
@@ -3025,12 +3061,182 @@ else version (CRuntime_Bionic)
     sigfn_t2 bsd_signal(int, sigfn_t2);
 
     int killpg(int, int);
-    int sigaltstack(in stack_t*, stack_t*);
+    int sigaltstack(const scope stack_t*, stack_t*);
     int siginterrupt(int, int);
 }
 else version (CRuntime_Musl)
 {
-    enum SA_RESTART     = 0x10000000;
+    version (MIPS_Any)
+    {
+        enum SIGPOLL   = 22;
+        enum SIGPROF   = 29;
+        enum SIGSYS    = 12;
+        enum SIGTRAP   = 5;
+        enum SIGVTALRM = 28;
+        enum SIGXCPU   = 30;
+        enum SIGXFSZ   = 31;
+
+        enum SA_ONSTACK   = 0x08000000;
+        enum SA_RESETHAND = 0x80000000;
+        enum SA_RESTART   = 0x10000000;
+        enum SA_SIGINFO   = 8;
+        enum SA_NOCLDWAIT = 0x10000;
+        enum SA_NODEFER   = 0x40000000;
+    }
+    else
+    {
+        enum SIGPOLL   = 29;
+        enum SIGPROF   = 27;
+        enum SIGSYS    = 31;
+        enum SIGTRAP   = 5;
+        enum SIGVTALRM = 26;
+        enum SIGXCPU   = 24;
+        enum SIGXFSZ   = 25;
+
+        enum SA_ONSTACK   = 0x08000000;
+        enum SA_RESETHAND = 0x80000000;
+        enum SA_RESTART   = 0x10000000;
+        enum SA_SIGINFO   = 4;
+        enum SA_NOCLDWAIT = 2;
+        enum SA_NODEFER   = 0x40000000;
+    }
+
+    enum SS_ONSTACK = 1;
+    enum SS_DISABLE = 2;
+
+    version (ARM)
+    {
+        enum MINSIGSTKSZ = 2048;
+        enum SIGSTKSZ    = 8192;
+    }
+    else version (AArch64)
+    {
+        enum MINSIGSTKSZ = 6144;
+        enum SIGSTKSZ    = 12288;
+    }
+    else version (IBMZ_Any)
+    {
+        enum MINSIGSTKSZ = 4096;
+        enum SIGSTKSZ    = 10240;
+    }
+    else version (MIPS_Any)
+    {
+        enum MINSIGSTKSZ = 2048;
+        enum SIGSTKSZ    = 8192;
+    }
+    else version (PPC_Any)
+    {
+        enum MINSIGSTKSZ = 4096;
+        enum SIGSTKSZ    = 10240;
+    }
+    else version (X86_Any)
+    {
+        enum MINSIGSTKSZ = 2048;
+        enum SIGSTKSZ    = 8192;
+    }
+    else
+        static assert(0, "unimplemented");
+
+    //ucontext_t (defined in core.sys.posix.ucontext)
+    //mcontext_t (defined in core.sys.posix.ucontext)
+
+    version (MIPS_Any)
+    {
+        struct stack_t
+        {
+            void*  ss_sp;
+            size_t ss_size;
+            int    ss_flags;
+        }
+    }
+    else
+    {
+        struct stack_t
+        {
+            void*  ss_sp;
+            int    ss_flags;
+            size_t ss_size;
+        }
+    }
+
+    enum
+    {
+        ILL_ILLOPC = 1,
+        ILL_ILLOPN,
+        ILL_ILLADR,
+        ILL_ILLTRP,
+        ILL_PRVOPC,
+        ILL_PRVREG,
+        ILL_COPROC,
+        ILL_BADSTK
+    }
+
+    enum
+    {
+        FPE_INTDIV = 1,
+        FPE_INTOVF,
+        FPE_FLTDIV,
+        FPE_FLTOVF,
+        FPE_FLTUND,
+        FPE_FLTRES,
+        FPE_FLTINV,
+        FPE_FLTSUB
+    }
+
+    enum
+    {
+        SEGV_MAPERR = 1,
+        SEGV_ACCERR
+    }
+
+    enum
+    {
+        BUS_ADRALN = 1,
+        BUS_ADRERR,
+        BUS_OBJERR
+    }
+
+    enum
+    {
+        TRAP_BRKPT = 1,
+        TRAP_TRACE
+    }
+
+    enum
+    {
+        CLD_EXITED = 1,
+        CLD_KILLED,
+        CLD_DUMPED,
+        CLD_TRAPPED,
+        CLD_STOPPED,
+        CLD_CONTINUED
+    }
+
+    enum
+    {
+        POLL_IN = 1,
+        POLL_OUT,
+        POLL_MSG,
+        POLL_ERR,
+        POLL_PRI,
+        POLL_HUP
+    }
+
+    sigfn_t bsd_signal(int sig, sigfn_t func);
+    sigfn_t sigset(int sig, sigfn_t func);
+
+  nothrow:
+  @nogc:
+    sigfn_t2 bsd_signal(int sig, sigfn_t2 func);
+    sigfn_t2 sigset(int sig, sigfn_t2 func);
+
+    int killpg(pid_t, int);
+    int sigaltstack(const scope stack_t*, stack_t*);
+    int sighold(int);
+    int sigignore(int);
+    int siginterrupt(int, int);
+    int sigpause(int);
+    int sigrelse(int);
 }
 else version (CRuntime_UClibc)
 {
@@ -3207,7 +3413,7 @@ else version (CRuntime_UClibc)
     sigfn_t2 sigset(int sig, sigfn_t2 func);
 
     int killpg(pid_t, int);
-    int sigaltstack(in stack_t*, stack_t*);
+    int sigaltstack(const scope stack_t*, stack_t*);
     int sighold(int);
     int sigignore(int);
     int siginterrupt(int, int);
@@ -3310,8 +3516,8 @@ struct sigevent
 }
 
 int sigqueue(pid_t, int, in sigval);
-int sigtimedwait(in sigset_t*, siginfo_t*, in timespec*);
-int sigwaitinfo(in sigset_t*, siginfo_t*);
+int sigtimedwait(const scope sigset_t*, siginfo_t*, const scope timespec*);
+int sigwaitinfo(const scope sigset_t*, siginfo_t*);
 */
 
 nothrow:
@@ -3350,8 +3556,8 @@ version (CRuntime_Glibc)
     }
 
     int sigqueue(pid_t, int, in sigval);
-    int sigtimedwait(in sigset_t*, siginfo_t*, in timespec*);
-    int sigwaitinfo(in sigset_t*, siginfo_t*);
+    int sigtimedwait(const scope sigset_t*, siginfo_t*, const scope timespec*);
+    int sigwaitinfo(const scope sigset_t*, siginfo_t*);
 }
 else version (FreeBSD)
 {
@@ -3373,8 +3579,8 @@ else version (FreeBSD)
     }
 
     int sigqueue(pid_t, int, in sigval);
-    int sigtimedwait(in sigset_t*, siginfo_t*, in timespec*);
-    int sigwaitinfo(in sigset_t*, siginfo_t*);
+    int sigtimedwait(const scope sigset_t*, siginfo_t*, const scope timespec*);
+    int sigwaitinfo(const scope sigset_t*, siginfo_t*);
 }
 else version (NetBSD)
 {
@@ -3388,11 +3594,13 @@ else version (NetBSD)
     }
 
     int sigqueue(pid_t, int, in sigval);
-    int sigtimedwait(in sigset_t*, siginfo_t*, in timespec*);
-    int sigwaitinfo(in sigset_t*, siginfo_t*);
+    int sigtimedwait(const scope sigset_t*, siginfo_t*, const scope timespec*);
+    int sigwaitinfo(const scope sigset_t*, siginfo_t*);
 }
 else version (OpenBSD)
 {
+    // OpenBSD does not implement sigevent.
+    alias sigevent = void;
 }
 else version (DragonFlyBSD)
 {
@@ -3418,8 +3626,8 @@ else version (DragonFlyBSD)
     }
 
     int sigqueue(pid_t, int, in sigval);
-    int sigtimedwait(in sigset_t*, siginfo_t*, in timespec*);
-    int sigwaitinfo(in sigset_t*, siginfo_t*);
+    int sigtimedwait(const scope sigset_t*, siginfo_t*, const scope timespec*);
+    int sigwaitinfo(const scope sigset_t*, siginfo_t*);
 }
 else version (Darwin)
 {
@@ -3445,8 +3653,8 @@ else version (Solaris)
     }
 
     int sigqueue(pid_t, int, in sigval);
-    int sigtimedwait(in sigset_t*, siginfo_t*, in timespec*);
-    int sigwaitinfo(in sigset_t*, siginfo_t*);
+    int sigtimedwait(const scope sigset_t*, siginfo_t*, const scope timespec*);
+    int sigwaitinfo(const scope sigset_t*, siginfo_t*);
 }
 else version (CRuntime_Bionic)
 {
@@ -3483,7 +3691,7 @@ else version (CRuntime_Musl)
         int sigev_notify;
         void function(sigval) sigev_notify_function;
         pthread_attr_t *sigev_notify_attributes;
-        char[56 - 3 * long.sizeof] __pad;
+        char[56 - 3 * c_long.sizeof] __pad = void;
     }
 }
 else version (CRuntime_UClibc)
@@ -3522,8 +3730,8 @@ else version (CRuntime_UClibc)
     @property void* sigev_notify_attributes(ref sigevent _sigevent) { return  _sigevent._sigev_un._sigev_thread._attribute; }
 
     int sigqueue(pid_t, int, in sigval);
-    int sigtimedwait(in sigset_t*, siginfo_t*, in timespec*);
-    int sigwaitinfo(in sigset_t*, siginfo_t*);
+    int sigtimedwait(const scope sigset_t*, siginfo_t*, const scope timespec*);
+    int sigwaitinfo(const scope sigset_t*, siginfo_t*);
 }
 else
 {
@@ -3535,58 +3743,58 @@ else
 //
 /*
 int pthread_kill(pthread_t, int);
-int pthread_sigmask(int, in sigset_t*, sigset_t*);
+int pthread_sigmask(int, const scope sigset_t*, sigset_t*);
 */
 
 version (CRuntime_Glibc)
 {
     int pthread_kill(pthread_t, int);
-    int pthread_sigmask(int, in sigset_t*, sigset_t*);
+    int pthread_sigmask(int, const scope sigset_t*, sigset_t*);
 }
 else version (Darwin)
 {
     int pthread_kill(pthread_t, int);
-    int pthread_sigmask(int, in sigset_t*, sigset_t*);
+    int pthread_sigmask(int, const scope sigset_t*, sigset_t*);
 }
 else version (FreeBSD)
 {
     int pthread_kill(pthread_t, int);
-    int pthread_sigmask(int, in sigset_t*, sigset_t*);
+    int pthread_sigmask(int, const scope sigset_t*, sigset_t*);
 }
 else version (NetBSD)
 {
     int pthread_kill(pthread_t, int);
-    int pthread_sigmask(int, in sigset_t*, sigset_t*);
+    int pthread_sigmask(int, const scope sigset_t*, sigset_t*);
 }
 else version (OpenBSD)
 {
     int pthread_kill(pthread_t, int);
-    int pthread_sigmask(int, in sigset_t*, sigset_t*);
+    int pthread_sigmask(int, const scope sigset_t*, sigset_t*);
 }
 else version (DragonFlyBSD)
 {
     int pthread_kill(pthread_t, int);
-    int pthread_sigmask(int, in sigset_t*, sigset_t*);
+    int pthread_sigmask(int, const scope sigset_t*, sigset_t*);
 }
 else version (Solaris)
 {
     int pthread_kill(pthread_t, int);
-    int pthread_sigmask(int, in sigset_t*, sigset_t*);
+    int pthread_sigmask(int, const scope sigset_t*, sigset_t*);
 }
 else version (CRuntime_Bionic)
 {
     int pthread_kill(pthread_t, int);
-    int pthread_sigmask(int, in sigset_t*, sigset_t*);
+    int pthread_sigmask(int, const scope sigset_t*, sigset_t*);
 }
 else version (CRuntime_Musl)
 {
     int pthread_kill(pthread_t, int);
-    int pthread_sigmask(int, in sigset_t*, sigset_t*);
+    int pthread_sigmask(int, const scope sigset_t*, sigset_t*);
 }
 else version (CRuntime_UClibc)
 {
     int pthread_kill(pthread_t, int);
-    int pthread_sigmask(int, in sigset_t*, sigset_t*);
+    int pthread_sigmask(int, const scope sigset_t*, sigset_t*);
     int pthread_sigqueue(pthread_t, int, sigval);
 }
 else

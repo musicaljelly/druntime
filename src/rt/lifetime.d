@@ -47,7 +47,14 @@ extern (C) void lifetime_init()
     import rt.config;
     string s = rt_configOption("callStructDtorsDuringGC");
     if (s != null)
+    {
+        // @@@DEPRECATED_v2.094@@@
+        // Deprecated in v2.088.
+        // To be removed in v2.094, if not earlier.
+        import core.stdc.stdio : fprintf, stderr;
+        fprintf(stderr, "Deprecation: The `callStructDtorsDuringGC` option has been deprecated and will be removed in a future release.\n");
         cast() callStructDtorsDuringGC = s[0] == '1' || s[0] == 'y' || s[0] == 'Y';
+    }
     else
         cast() callStructDtorsDuringGC = true;
 }
@@ -68,6 +75,7 @@ extern (C) Object _d_newclass(const ClassInfo ci)
     import core.stdc.stdlib;
     import core.exception : onOutOfMemoryError;
     void* p;
+    auto init = ci.initializer;
 
     debug(PRINTF) printf("_d_newclass(ci = %p, %s)\n", ci, cast(char *)ci.name);
     if (ci.m_flags & TypeInfo_Class.ClassFlags.isCOMclass)
@@ -76,7 +84,7 @@ extern (C) Object _d_newclass(const ClassInfo ci)
          * function called by Release() when Release()'s reference count goes
          * to zero.
      */
-        p = malloc(ci.initializer.length);
+        p = malloc(init.length);
         if (!p)
             onOutOfMemoryError();
     }
@@ -90,26 +98,26 @@ extern (C) Object _d_newclass(const ClassInfo ci)
             attr |= BlkAttr.FINALIZE;
         if (ci.m_flags & TypeInfo_Class.ClassFlags.noPointers)
             attr |= BlkAttr.NO_SCAN;
-        p = GC.malloc(ci.initializer.length, attr, ci);
+        p = GC.malloc(init.length, attr, ci);
         debug(PRINTF) printf(" p = %p\n", p);
     }
 
     debug(PRINTF)
     {
         printf("p = %p\n", p);
-        printf("ci = %p, ci.init.ptr = %p, len = %llu\n", ci, ci.initializer.ptr, cast(ulong)ci.initializer.length);
-        printf("vptr = %p\n", *cast(void**) ci.initializer);
-        printf("vtbl[0] = %p\n", (*cast(void***) ci.initializer)[0]);
-        printf("vtbl[1] = %p\n", (*cast(void***) ci.initializer)[1]);
-        printf("init[0] = %x\n", (cast(uint*) ci.initializer)[0]);
-        printf("init[1] = %x\n", (cast(uint*) ci.initializer)[1]);
-        printf("init[2] = %x\n", (cast(uint*) ci.initializer)[2]);
-        printf("init[3] = %x\n", (cast(uint*) ci.initializer)[3]);
-        printf("init[4] = %x\n", (cast(uint*) ci.initializer)[4]);
+        printf("ci = %p, ci.init.ptr = %p, len = %llu\n", ci, init.ptr, cast(ulong)init.length);
+        printf("vptr = %p\n", *cast(void**) init);
+        printf("vtbl[0] = %p\n", (*cast(void***) init)[0]);
+        printf("vtbl[1] = %p\n", (*cast(void***) init)[1]);
+        printf("init[0] = %x\n", (cast(uint*) init)[0]);
+        printf("init[1] = %x\n", (cast(uint*) init)[1]);
+        printf("init[2] = %x\n", (cast(uint*) init)[2]);
+        printf("init[3] = %x\n", (cast(uint*) init)[3]);
+        printf("init[4] = %x\n", (cast(uint*) init)[4]);
     }
 
     // initialize it
-    p[0 .. ci.initializer.length] = ci.initializer[];
+    p[0 .. init.length] = init[];
 
     debug(PRINTF) printf("initialization done\n");
     return cast(Object) p;
@@ -425,7 +433,7 @@ BlkInfo __arrayAlloc(size_t arrsize, const TypeInfo ti, const TypeInfo tinext) n
     uint attr = (!(tinext.flags & 1) ? BlkAttr.NO_SCAN : 0) | BlkAttr.APPENDABLE;
     if (typeInfoSize)
         attr |= BlkAttr.STRUCTFINAL | BlkAttr.FINALIZE;
-    return GC.qalloc(padded_size, attr, ti);
+    return GC.qalloc(padded_size, attr, tinext);
 }
 
 BlkInfo __arrayAlloc(size_t arrsize, ref BlkInfo info, const TypeInfo ti, const TypeInfo tinext)
@@ -442,7 +450,7 @@ BlkInfo __arrayAlloc(size_t arrsize, ref BlkInfo info, const TypeInfo ti, const 
         return BlkInfo();
     }
 
-    return GC.qalloc(padded_size, info.attr, ti);
+    return GC.qalloc(padded_size, info.attr, tinext);
 }
 
 /**
@@ -1179,7 +1187,7 @@ extern (C) void _d_delarray_t(void[]* p, const TypeInfo_Struct ti)
     }
 }
 
-unittest
+deprecated unittest
 {
     __gshared size_t countDtor = 0;
     struct S
@@ -1438,12 +1446,12 @@ extern (C) void rt_finalize2(void* p, bool det = true, bool resetMemory = true) 
     }
 }
 
-extern (C) void rt_finalize(void* p, bool det = true)
+extern (C) void rt_finalize(void* p, bool det = true) nothrow
 {
     rt_finalize2(p, det, true);
 }
 
-extern (C) void rt_finalizeFromGC(void* p, size_t size, uint attr)
+extern (C) void rt_finalizeFromGC(void* p, size_t size, uint attr) nothrow
 {
     // to verify: reset memory necessary?
     if (!(attr & BlkAttr.STRUCTFINAL))
@@ -2082,24 +2090,24 @@ extern (C) void[] _d_arrayappendcd(ref byte[] x, dchar c)
 {
     // c could encode into from 1 to 4 characters
     char[4] buf = void;
-    byte[] appendthis; // passed to appendT
+    char[] appendthis; // passed to appendT
     if (c <= 0x7F)
     {
         buf.ptr[0] = cast(char)c;
-        appendthis = (cast(byte *)buf.ptr)[0..1];
+        appendthis = buf[0..1];
     }
     else if (c <= 0x7FF)
     {
         buf.ptr[0] = cast(char)(0xC0 | (c >> 6));
         buf.ptr[1] = cast(char)(0x80 | (c & 0x3F));
-        appendthis = (cast(byte *)buf.ptr)[0..2];
+        appendthis = buf[0..2];
     }
     else if (c <= 0xFFFF)
     {
         buf.ptr[0] = cast(char)(0xE0 | (c >> 12));
         buf.ptr[1] = cast(char)(0x80 | ((c >> 6) & 0x3F));
         buf.ptr[2] = cast(char)(0x80 | (c & 0x3F));
-        appendthis = (cast(byte *)buf.ptr)[0..3];
+        appendthis = buf[0..3];
     }
     else if (c <= 0x10FFFF)
     {
@@ -2107,7 +2115,7 @@ extern (C) void[] _d_arrayappendcd(ref byte[] x, dchar c)
         buf.ptr[1] = cast(char)(0x80 | ((c >> 12) & 0x3F));
         buf.ptr[2] = cast(char)(0x80 | ((c >> 6) & 0x3F));
         buf.ptr[3] = cast(char)(0x80 | (c & 0x3F));
-        appendthis = (cast(byte *)buf.ptr)[0..4];
+        appendthis = buf[0..4];
     }
     else
     {
@@ -2120,7 +2128,12 @@ extern (C) void[] _d_arrayappendcd(ref byte[] x, dchar c)
     // get a typeinfo from the compiler.  Assuming shared is the safest option.
     // Once the compiler is fixed, the proper typeinfo should be forwarded.
     //
-    return _d_arrayappendT(typeid(shared char[]), x, appendthis);
+
+    // Hack because _d_arrayappendT takes `x` as a reference
+    auto xx = cast(shared(char)[])x;
+    object._d_arrayappendTImpl!(shared(char)[])._d_arrayappendT(xx, cast(shared(char)[])appendthis);
+    x = cast(byte[])xx;
+    return x;
 }
 
 unittest
@@ -2159,21 +2172,17 @@ extern (C) void[] _d_arrayappendwd(ref byte[] x, dchar c)
 {
     // c could encode into from 1 to 2 w characters
     wchar[2] buf = void;
-    byte[] appendthis; // passed to appendT
+    wchar[] appendthis; // passed to appendT
     if (c <= 0xFFFF)
     {
         buf.ptr[0] = cast(wchar) c;
-        // note that although we are passing only 1 byte here, appendT
-        // interprets this as being an array of wchar, making the necessary
-        // casts.
-        appendthis = (cast(byte *)buf.ptr)[0..1];
+        appendthis = buf[0..1];
     }
     else
     {
         buf.ptr[0] = cast(wchar) ((((c - 0x10000) >> 10) & 0x3FF) + 0xD800);
         buf.ptr[1] = cast(wchar) (((c - 0x10000) & 0x3FF) + 0xDC00);
-        // ditto from above.
-        appendthis = (cast(byte *)buf.ptr)[0..2];
+        appendthis = buf[0..2];
     }
 
     //
@@ -2181,7 +2190,11 @@ extern (C) void[] _d_arrayappendwd(ref byte[] x, dchar c)
     // get a typeinfo from the compiler.  Assuming shared is the safest option.
     // Once the compiler is fixed, the proper typeinfo should be forwarded.
     //
-    return _d_arrayappendT(typeid(shared wchar[]), x, appendthis);
+
+    auto xx = (cast(shared(wchar)*)x.ptr)[0 .. x.length];
+    object._d_arrayappendTImpl!(shared(wchar)[])._d_arrayappendT(xx, cast(shared(wchar)[])appendthis);
+    x = (cast(byte*)xx.ptr)[0 .. xx.length];
+    return x;
 }
 
 
@@ -2453,12 +2466,22 @@ unittest
     // Bugzilla 3454 - Inconsistent flag setting in GC.realloc()
     static void test(size_t multiplier)
     {
-        auto p = GC.malloc(8 * multiplier, BlkAttr.NO_SCAN);
+        auto p = GC.malloc(8 * multiplier, 0);
+        assert(GC.getAttr(p) == 0);
+
+        // no move, set attr
+        p = GC.realloc(p, 8 * multiplier + 5, BlkAttr.NO_SCAN);
         assert(GC.getAttr(p) == BlkAttr.NO_SCAN);
-        p = GC.realloc(p, 2 * multiplier, BlkAttr.NO_SCAN);
+
+        // shrink, copy attr
+        p = GC.realloc(p, 2 * multiplier, 0);
+        assert(GC.getAttr(p) == BlkAttr.NO_SCAN);
+
+        // extend, copy attr
+        p = GC.realloc(p, 8 * multiplier, 0);
         assert(GC.getAttr(p) == BlkAttr.NO_SCAN);
     }
-    test(1);
+    test(16);
     test(1024 * 1024);
 }
 
@@ -2575,7 +2598,7 @@ unittest
 
 // test struct finalizers
 debug(SENTINEL) {} else
-unittest
+deprecated unittest
 {
     __gshared int dtorCount;
     static struct S1
