@@ -3,8 +3,7 @@
 
 module gc.impl.scrapheap.gc;
 
-import gc.config;
-import gc.gcinterface;
+import core.gc.gcinterface;
 
 import rt.util.container.array;
 
@@ -59,7 +58,7 @@ ThreadID GetCurrentThreadID() nothrow
     return threadID;
 }
 
-GC initialize()
+GC initializeScrapheap()
 {
     auto p = cstdlib.malloc(__traits(classInstanceSize, ScrapheapGC));
     if (!p)
@@ -75,12 +74,18 @@ GC initialize()
 
 class ScrapheapGC : GC
 {
+    immutable int NUM_TLS_HEAPS = 16;
+
     // Static so they can be thread-local
     static Heap[NUM_TLS_HEAPS] tls_heaps;
     static int tls_heapIndex = 0;
     static void* tls_tempRegionBottom = null;
     static size_t tls_highWatermark = 0;
     static size_t tls_highWatermarkThisFrame = 0;
+
+    this()
+    {
+    }
 
     ~this()
     {
@@ -299,6 +304,11 @@ class ScrapheapGC : GC
         return typeof(return).init;
     }
 
+    core.memory.GC.ProfileStats profileStats() nothrow
+    {
+        return typeof(return).init;
+    }
+
     void addRoot(void* p) nothrow @nogc
     {
         assert(false);
@@ -339,7 +349,7 @@ class ScrapheapGC : GC
         assert(false);
     }
 
-    void runFinalizers(in void[] segment) nothrow
+    void runFinalizers(const scope void[] segment) nothrow
     {
     }
 

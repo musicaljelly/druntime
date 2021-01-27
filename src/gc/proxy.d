@@ -85,9 +85,9 @@ extern (C)
             // !!!
             register_default_gcs();
             config.initialize();
-            auto protoInstance = gcInstance
+            auto protoInstance = gcInstance;
             auto newInstance = createGCInstance(config.gc);
-            ScrapheapGC.initialize(scrapheapInstance);
+            scrapheapInstance = initializeScrapheap();
             if (newInstance is null)
             {
                 import core.stdc.stdio : fprintf, stderr;
@@ -102,7 +102,7 @@ extern (C)
             }
             
             gcInstance = newInstance;
-            instance = gcInstance;
+            instance = &gcInstance;
             // !!!
 
             // Transfer all ranges and roots to the real GC.
