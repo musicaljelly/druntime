@@ -20,12 +20,6 @@ public import core.sync.exception;
 private import core.sync.condition;
 private import core.sync.mutex;
 
-version (Posix)
-{
-    private import core.stdc.errno;
-    private import core.sys.posix.pthread;
-}
-
 
 ////////////////////////////////////////////////////////////////////////////////
 // Barrier
@@ -112,40 +106,35 @@ private:
 // Unit Tests
 ////////////////////////////////////////////////////////////////////////////////
 
-
-version (unittest)
+unittest
 {
-    private import core.thread;
+    import core.thread;
 
+    int  numThreads = 10;
+    auto barrier    = new Barrier( numThreads );
+    auto synInfo    = new Object;
+    int  numReady   = 0;
+    int  numPassed  = 0;
 
-    unittest
+    void threadFn()
     {
-        int  numThreads = 10;
-        auto barrier    = new Barrier( numThreads );
-        auto synInfo    = new Object;
-        int  numReady   = 0;
-        int  numPassed  = 0;
-
-        void threadFn()
+        synchronized( synInfo )
         {
-            synchronized( synInfo )
-            {
-                ++numReady;
-            }
-            barrier.wait();
-            synchronized( synInfo )
-            {
-                ++numPassed;
-            }
+            ++numReady;
         }
-
-        auto group = new ThreadGroup;
-
-        for ( int i = 0; i < numThreads; ++i )
+        barrier.wait();
+        synchronized( synInfo )
         {
-            group.create( &threadFn );
+            ++numPassed;
         }
-        group.joinAll();
-        assert( numReady == numThreads && numPassed == numThreads );
     }
+
+    auto group = new ThreadGroup;
+
+    for ( int i = 0; i < numThreads; ++i )
+    {
+        group.create( &threadFn );
+    }
+    group.joinAll();
+    assert( numReady == numThreads && numPassed == numThreads );
 }

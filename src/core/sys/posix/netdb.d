@@ -33,6 +33,7 @@ version (Posix):
 extern (C):
 nothrow:
 @nogc:
+@system:
 
 //
 // Required
@@ -743,9 +744,7 @@ else version (Solaris)
         int ai_socktype;
         int ai_protocol;
 
-        version (SPARC)
-            int _ai_pad;
-        else version (SPARC64)
+        version (SPARC64)
             int _ai_pad;
 
         socklen_t ai_addrlen;

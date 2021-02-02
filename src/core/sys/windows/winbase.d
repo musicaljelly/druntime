@@ -8,6 +8,7 @@
  */
 module core.sys.windows.winbase;
 version (Windows):
+@system:
 
 version (ANSI) {} else version = Unicode;
 pragma(lib, "kernel32");
@@ -2258,6 +2259,7 @@ WINBASEAPI BOOL WINAPI SetEvent(HANDLE);
     BOOL IsValidAcl(PACL);
     BOOL IsValidSecurityDescriptor(PSECURITY_DESCRIPTOR);
     BOOL IsValidSid(PSID);
+    BOOL CreateWellKnownSid(WELL_KNOWN_SID_TYPE, PSID, PSID, PDWORD);
     BOOL LockFileEx(HANDLE, DWORD, DWORD, DWORD, DWORD, LPOVERLAPPED);
     BOOL LogonUserA(LPSTR, LPSTR, LPSTR, DWORD, DWORD, PHANDLE);
     BOOL LogonUserW(LPWSTR, LPWSTR, LPWSTR, DWORD, DWORD, PHANDLE);

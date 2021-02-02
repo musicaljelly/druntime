@@ -8,6 +8,7 @@
  */
 module core.sys.windows.wtypes;
 version (Windows):
+@system:
 
 import core.sys.windows.rpc, core.sys.windows.rpcndr;
 private import core.sys.windows.windef;
@@ -187,7 +188,7 @@ enum VARENUM {
     VT_ILLEGAL       = 0xffff,
     VT_ILLEGALMASKED = 0xfff,
     VT_TYPEMASK      = 0xfff
-};
+}
 
 struct BYTE_SIZEDARR {
     uint clSize;

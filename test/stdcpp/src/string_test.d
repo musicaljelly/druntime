@@ -19,6 +19,11 @@ unittest
     str = "Hello again with a long long string woo";
     assert(sumOfElements_val(str) == 10935);
     assert(sumOfElements_ref(str) == 3645);
+    //assert(str == std_string("Hello again with a long long string woo")); // Needs -preview=rvaluerefparam.
+    {
+        auto tmp = std_string("Hello again with a long long string woo");   // Workaround.
+        assert(str == tmp);
+    }
 
     std_string str2 = std_string(Default);
     assert(str2.size == 0);
@@ -53,6 +58,28 @@ unittest
     assert(str3.size == 5);
     assert(str3.length == 5);
     assert(str3.empty == false);
+
+    std_string str4 = "12345";
+    str4.reserve(40);
+    auto p = str4.data();
+    foreach (i; 0 .. 5)
+        str4 ~= "00000";
+    assert(str4.length == 30);
+    assert(str4.data() == p);
+    str4.shrink_to_fit();
+
+    str4.clear();
+    str4 ~= "world";
+    str4.insert(0, "hello ");
+    str4.insert(11, "!");
+    assert(str4[] == "hello world!");
+    str4.replace(6, 5, "me");
+    assert(str4[] == "hello me!");
+    str4.insert(0, 4, ' ');
+    assert(str4[] == "    hello me!");
+    str4.resize(4);
+    str4.resize(7, '.');
+    assert(str4[] == "    ...");
 }
 
 

@@ -9,6 +9,7 @@ DMD=W:\external\DMD\windows\bin\dmd.exe
 
 CC=W:\external\DigitalMars\bin\dmc.exe
 MAKE=W:\external\DigitalMars\bin\make.exe
+HOST_DMD=W:\external\DMD\windows\bin\dmd.exe
 # !!!
 
 DOCDIR=doc
@@ -16,12 +17,12 @@ IMPDIR=import
 
 # !!!
 # Removed release-specific flags, putting them below instead
-DFLAGS=-m$(MODEL) -conf= -dip1000 -preview=fieldwise -w -Isrc -Iimport
+DFLAGS=-m$(MODEL) -conf= -dip1000 -preview=fieldwise -preview=dtorfields -w -Isrc -Iimport
 # !!!
 UDFLAGS=-m$(MODEL) -conf= -O -release -dip1000 -preview=fieldwise -w -Isrc -Iimport
 DDOCFLAGS=-conf= -c -w -o- -Isrc -Iimport -version=CoreDdoc
 
-UTFLAGS=-version=CoreUnittest -unittest
+UTFLAGS=-version=CoreUnittest -unittest -checkaction=context
 
 CFLAGS=
 
@@ -53,13 +54,13 @@ OBJS_TO_DELETE= errno_c_$(MODEL).obj
 ######################## Header file generation ##############################
 
 import:
-	$(MAKE) -f mak/WINDOWS import DMD="$(DMD)" IMPDIR="$(IMPDIR)"
+	"$(MAKE)" -f mak/WINDOWS import DMD="$(DMD)" HOST_DMD="$(HOST_DMD)" MODEL=$(MODEL) IMPDIR="$(IMPDIR)"
 
 copydir:
-	$(MAKE) -f mak/WINDOWS copydir IMPDIR="$(IMPDIR)"
+	"$(MAKE)" -f mak/WINDOWS copydir HOST_DMD="$(HOST_DMD)" MODEL=$(MODEL) IMPDIR="$(IMPDIR)"
 
 copy:
-	$(MAKE) -f mak/WINDOWS copy DMD="$(DMD)" IMPDIR="$(IMPDIR)"
+	"$(MAKE)" -f mak/WINDOWS copy DMD="$(DMD)" HOST_DMD="$(HOST_DMD)" MODEL=$(MODEL) IMPDIR="$(IMPDIR)"
 
 ################### Win32 Import Libraries ###################
 
@@ -136,6 +137,9 @@ test_aa:
 test_cpuid:
 	"$(MAKE)" -f test\cpuid\win64.mak "DMD=$(DMD)" MODEL=$(MODEL) "VCDIR=$(VCDIR)" DRUNTIMELIB=$(DRUNTIME) "CC=$(CC)" test
 
+test_exceptions:
+	"$(MAKE)" -f test\exceptions\win64.mak "DMD=$(DMD)" MODEL=$(MODEL) "VCDIR=$(VCDIR)" DRUNTIMELIB=$(DRUNTIME) "CC=$(CC)" test
+
 test_hash:
 	$(DMD) -m$(MODEL) -conf= -Isrc -defaultlib=$(DRUNTIME) -run test\hash\src\test_hash.d
 
@@ -148,7 +152,7 @@ custom_gc:
 test_shared:
 	$(MAKE) -f test\shared\win64.mak "DMD=$(DMD)" MODEL=$(MODEL) "VCDIR=$(VCDIR)" DRUNTIMELIB=$(DRUNTIME) "CC=$(CC)" test
 
-test_all: test_aa test_cpuid test_hash test_gc custom_gc test_shared
+test_all: test_aa test_cpuid test_exceptions test_hash test_gc custom_gc test_shared
 
 ################### zip/install/clean ##########################
 
@@ -167,6 +171,8 @@ clean:
 	del $(DRUNTIME) $(OBJS_TO_DELETE)
 	rmdir /S /Q $(DOCDIR) $(IMPDIR)
 
-auto-tester-build: target
+auto-tester-build:
+	echo "Windows builds have been disabled on auto-tester"
 
-auto-tester-test: unittest test_all
+auto-tester-test:
+	echo "Windows builds have been disabled on auto-tester"

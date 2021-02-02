@@ -1,6 +1,11 @@
 import core.runtime, core.time : MonoTime;
 import core.stdc.stdio;
 
+version (ARM)     version = ARM_Any;
+version (AArch64) version = ARM_Any;
+
+version (ARM_Any) version (D_HardFloat) version = ARM_Any_HardFloat;
+
 ModuleInfo* getModuleInfo(string name)
 {
     foreach (m; ModuleInfo)
@@ -10,6 +15,13 @@ ModuleInfo* getModuleInfo(string name)
 
 UnitTestResult tester()
 {
+    version (ARM_Any_HardFloat)
+    {
+        disableFPUFastMode();
+        scope (exit)
+            restoreFPUMode();
+    }
+
     return Runtime.args.length > 1 ? testModules() : testAll();
 }
 
@@ -95,4 +107,73 @@ shared static this()
 
 void main()
 {
+}
+
+version (ARM_Any_HardFloat):
+
+/*
+iOS has ARM/AArch64 FPU in run fast mode, so need to disable these things to
+help math tests to pass all their cases.  In a real iOS app, probably would not
+depend on such behavior that math unit tests expect.
+
+FPSCR(ARM)/ FPCR(AArch64) mode bits of interest. ARM has both bits 24,25 set by
+default, AArch64 has just bit 25 set by default.
+
+[25] DN Default NaN mode enable bit:
+0 = default NaN mode disabled 1 = default NaN mode enabled.
+[24] FZ Flush-to-zero mode enable bit:
+0 = flush-to-zero mode disabled 1 = flush-to-zero mode enabled.
+*/
+void disableFPUFastMode()
+{
+    int dummy;
+    version (ARM)
+    {
+        asm
+        {
+            "vmrs %0, fpscr
+             bic %0, #(3 << 24)
+             vmsr fpscr, %0"
+            : "=r" (dummy);
+        }
+    }
+    else version (AArch64)
+    {
+        asm
+        {
+            "mrs %0, fpcr
+             and %0, %0, #~(1 << 25)
+             msr fpcr, %0"
+            : "=r" (dummy);
+        }
+    }
+    else
+        static assert(0);
+}
+
+void restoreFPUMode()
+{
+    int dummy;
+    version (ARM)
+    {
+        asm
+        {
+            "vmrs %0, fpscr
+             orr %0, #(3 << 24)
+             vmsr fpscr, %0"
+            : "=r" (dummy);
+        }
+    }
+    else version (AArch64)
+    {
+        asm
+        {
+            "mrs %0, fpcr
+             orr %0, %0, #(1 << 25)
+             msr fpcr, %0"
+            : "=r" (dummy);
+        }
+    }
+    else
+        static assert(0);
 }

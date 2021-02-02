@@ -50,9 +50,12 @@ private
     // on each spawned thread to set this up. Which is doubly tricky, because the call has to come from Game.dll, which means
     // static this() won't cut it (since we spawn our threads from main, meaning the static this() call would come from main).
     int allocatorStackTop = 0;
-    GC* instance = &gcInstance;
+    GC* _instance = &gcInstance;
     GC*[ALLOCATOR_STACK_SIZE] allocatorStack = [0:&gcInstance];
     // !!!
+    
+    pragma (inline, true) @trusted @nogc nothrow
+    GC instance() { return _instance; }
 }
 
 // NOTE: This whole proxy conceit only works because of polymorphic dispatch.
@@ -102,7 +105,7 @@ extern (C)
             }
             
             gcInstance = newInstance;
-            instance = &gcInstance;
+            _instance = &gcInstance;
             // !!!
 
             // Transfer all ranges and roots to the real GC.
@@ -257,7 +260,7 @@ extern (C)
         return instance.stats();
     }
 
-    core.memory.GC.ProfileStats gc_profileStats() nothrow
+    core.memory.GC.ProfileStats gc_profileStats() nothrow @safe
     {
         return instance.profileStats();
     }
@@ -290,9 +293,14 @@ extern (C)
         return instance.runFinalizers( segment );
     }
 
-    bool gc_inFinalizer() nothrow
+    bool gc_inFinalizer() nothrow @nogc @safe
     {
         return instance.inFinalizer();
+    }
+
+    ulong gc_allocatedInCurrentThread() nothrow
+    {
+        return instance.allocatedInCurrentThread();
     }
 
     // !!!
@@ -335,6 +343,15 @@ extern (C)
 
                 gcInstance = gcProxyToSet;
                 scrapheapInstance = scrapheapProxyToSet;
+                
+                if (allocatorStackTop > 0)
+                {
+                    printf("Can only set the gc proxy when the allocator stack is empty");
+                    asm {int 3;}
+                }
+                
+                _instance = &gcInstance;
+                allocatorStack[0] = &gcInstance;
             }
         }
         // !!!
@@ -357,7 +374,8 @@ extern (C)
 
             // At this point we should be all the way at the bottom of the allocator stack, and our current allocator should be
             // the GC. So update the instance to the stored GC so we don't collect from main's GC while we tear down the DLL.
-            instance = &proxiedGC;
+            // We assume nobody uses the allocator stack after this point.
+            _instance = proxiedGC;
 
             proxiedGC = null;
             proxiedScrapheap = null;

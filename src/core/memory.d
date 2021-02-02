@@ -104,6 +104,17 @@
 
 module core.memory;
 
+version (ARM)
+    version = AnyARM;
+else version (AArch64)
+    version = AnyARM;
+
+version (iOS)
+    version = iOSDerived;
+else version (TVOS)
+    version = iOSDerived;
+else version (WatchOS)
+    version = iOSDerived;
 
 private
 {
@@ -140,6 +151,7 @@ private
     extern (C) BlkInfo_ gc_query( void* p ) pure nothrow;
     extern (C) GC.Stats gc_stats ( ) nothrow @nogc;
     extern (C) GC.ProfileStats gc_profileStats ( ) nothrow @nogc @safe;
+    extern (C) ulong gc_allocatedInCurrentThread( ) nothrow;
 
     extern (C) void gc_addRoot(const void* p ) nothrow @nogc;
     extern (C) void gc_addRange(const void* p, size_t sz, const TypeInfo ti = null ) nothrow @nogc;
@@ -148,9 +160,94 @@ private
     extern (C) void gc_removeRange(const void* p ) nothrow @nogc;
     extern (C) void gc_runFinalizers( const scope void[] segment );
 
-    package extern (C) bool gc_inFinalizer();
+    package extern (C) bool gc_inFinalizer() nothrow @nogc @safe;
 }
 
+version (CoreDoc)
+{
+    /**
+     * The minimum size of a system page in bytes.
+     *
+     * This is a compile time, platform specific value. This value might not
+     * be accurate, since it might be possible to change this value. Whenever
+     * possible, please use $(LREF pageSize) instead, which is initialized
+     * during runtime.
+     *
+     * The minimum size is useful when the context requires a compile time known
+     * value, like the size of a static array: `ubyte[minimumPageSize] buffer`.
+     */
+    enum minimumPageSize : size_t;
+}
+else version (AnyARM)
+{
+    version (iOSDerived)
+        enum size_t minimumPageSize = 16384;
+    else
+        enum size_t minimumPageSize = 4096;
+}
+else
+    enum size_t minimumPageSize = 4096;
+
+///
+unittest
+{
+    ubyte[minimumPageSize] buffer;
+}
+
+/**
+ * The size of a system page in bytes.
+ *
+ * This value is set at startup time of the application. It's safe to use
+ * early in the start process, like in shared module constructors and
+ * initialization of the D runtime itself.
+ */
+immutable size_t pageSize;
+
+///
+unittest
+{
+    ubyte[] buffer = new ubyte[pageSize];
+}
+
+// The reason for this elaborated way of declaring a function is:
+//
+// * `pragma(crt_constructor)` is used to declare a constructor that is called by
+// the C runtime, before C main. This allows the `pageSize` value to be used
+// during initialization of the D runtime. This also avoids any issues with
+// static module constructors and circular references.
+//
+// * `pragma(mangle)` is used because `pragma(crt_constructor)` requires a
+// function with C linkage. To avoid any name conflict with other C symbols,
+// standard D mangling is used.
+//
+// * The extra function declaration, without the body, is to be able to get the
+// D mangling of the function without the need to hardcode the value.
+//
+// * The extern function declaration also has the side effect of making it
+// impossible to manually call the function with standard syntax. This is to
+// make it more difficult to call the function again, manually.
+private void initialize();
+pragma(crt_constructor)
+pragma(mangle, `_D` ~ initialize.mangleof)
+private extern (C) void initialize() @system
+{
+    version (Posix)
+    {
+        import core.sys.posix.unistd : sysconf, _SC_PAGESIZE;
+
+        (cast() pageSize) = cast(size_t) sysconf(_SC_PAGESIZE);
+    }
+    else version (Windows)
+    {
+        import core.sys.windows.winbase : GetSystemInfo, SYSTEM_INFO;
+
+        SYSTEM_INFO si;
+        GetSystemInfo(&si);
+        (cast() pageSize) = cast(size_t) si.dwPageSize;
+    }
+    else
+        static assert(false, __FUNCTION__ ~ " is not implemented on this platform");
+}
 
 /**
  * This struct encapsulates all garbage collection functionality for the D
@@ -847,6 +944,134 @@ struct GC
     {
         gc_runFinalizers( segment );
     }
+
+    /**
+     * Queries the GC whether the current thread is running object finalization
+     * as part of a GC collection, or an explicit call to runFinalizers.
+     *
+     * As some GC implementations (such as the current conservative one) don't
+     * support GC memory allocation during object finalization, this function
+     * can be used to guard against such programming errors.
+     *
+     * Returns:
+     *  true if the current thread is in a finalizer, a destructor invoked by
+     *  the GC.
+     */
+    static bool inFinalizer() nothrow @nogc @safe
+    {
+        return gc_inFinalizer();
+    }
+
+    ///
+    @safe nothrow @nogc unittest
+    {
+        // Only code called from a destructor is executed during finalization.
+        assert(!GC.inFinalizer);
+    }
+
+    ///
+    unittest
+    {
+        enum Outcome
+        {
+            notCalled,
+            calledManually,
+            calledFromDruntime
+        }
+
+        static class Resource
+        {
+            static Outcome outcome;
+
+            this()
+            {
+                outcome = Outcome.notCalled;
+            }
+
+            ~this()
+            {
+                if (GC.inFinalizer)
+                {
+                    outcome = Outcome.calledFromDruntime;
+
+                    import core.exception : InvalidMemoryOperationError;
+                    try
+                    {
+                        /*
+                         * Presently, allocating GC memory during finalization
+                         * is forbidden and leads to
+                         * `InvalidMemoryOperationError` being thrown.
+                         *
+                         * `GC.inFinalizer` can be used to guard against
+                         * programming erros such as these and is also a more
+                         * efficient way to verify whether a destructor was
+                         * invoked by the GC.
+                         */
+                        cast(void) GC.malloc(1);
+                        assert(false);
+                    }
+                    catch (InvalidMemoryOperationError e)
+                    {
+                        return;
+                    }
+                    assert(false);
+                }
+                else
+                    outcome = Outcome.calledManually;
+            }
+        }
+
+        static void createGarbage()
+        {
+            auto r = new Resource;
+            r = null;
+        }
+
+        assert(Resource.outcome == Outcome.notCalled);
+        createGarbage();
+        GC.collect;
+        assert(
+            Resource.outcome == Outcome.notCalled ||
+            Resource.outcome == Outcome.calledFromDruntime);
+
+        auto r = new Resource;
+        GC.runFinalizers((cast(const void*)typeid(Resource).destructor)[0..1]);
+        assert(Resource.outcome == Outcome.calledFromDruntime);
+        Resource.outcome = Outcome.notCalled;
+        r.destroy;
+        assert(Resource.outcome == Outcome.notCalled);
+
+        r = new Resource;
+        assert(Resource.outcome == Outcome.notCalled);
+        r.destroy;
+        assert(Resource.outcome == Outcome.calledManually);
+    }
+
+    /**
+     * Returns the number of bytes allocated for the current thread
+     * since program start. It is the same as
+     * GC.stats().allocatedInCurrentThread, but faster.
+     */
+    static ulong allocatedInCurrentThread() nothrow
+    {
+        return gc_allocatedInCurrentThread();
+    }
+
+    /// Using allocatedInCurrentThread
+    nothrow unittest
+    {
+        ulong currentlyAllocated = GC.allocatedInCurrentThread();
+        struct DataStruct
+        {
+            long l1;
+            long l2;
+            long l3;
+            long l4;
+        }
+        DataStruct* unused = new DataStruct;
+        assert(GC.allocatedInCurrentThread() == currentlyAllocated + 32);
+        assert(GC.stats().allocatedInCurrentThread == currentlyAllocated + 32);
+    }
 }
 
 /**
@@ -1285,7 +1510,13 @@ unittest
         set(p, memsize);
         verify(p, memsize);
 
-        int* q = cast(int*) GC.realloc(p + 16, 2 * memsize * int.sizeof);
+        int* q = cast(int*) GC.realloc(p + 4, 2 * memsize * int.sizeof);
+        assert(q == null);
+
+        q = cast(int*) GC.realloc(p + memsize / 2, 2 * memsize * int.sizeof);
+        assert(q == null);
+
+        q = cast(int*) GC.realloc(p + memsize - 1, 2 * memsize * int.sizeof);
         assert(q == null);
 
         int* r = cast(int*) GC.realloc(p, 5 * memsize * int.sizeof);

@@ -9,6 +9,7 @@
  */
 module core.sys.windows.basetsd;
 version (Windows):
+@system:
 
 /*  This template is used in these modules to declare constant pointer types,
  *  in order to support both D 1.x and 2.x.
@@ -58,7 +59,7 @@ package mixin template AlignedStr(int alignVal, string name, string memberlist,
     mixin( _alignSpec ~ " struct " ~ name ~" { " ~ _alignSpec ~":"~ memberlist~" }" );
 }
 
-version (unittest) {
+version (CoreUnittest) {
     private mixin AlignedStr!(16, "_Test_Aligned_Str", q{char a; char b;});
     private mixin AlignedStr!(0, "_Test_NoAligned_Str", q{char a; char b;});
 }

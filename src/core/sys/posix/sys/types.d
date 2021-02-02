@@ -30,6 +30,7 @@ else version (WatchOS)
 
 version (Posix):
 extern (C):
+@system:
 
 //
 // bits/typesizes.h -- underlying types for *_t.
@@ -112,8 +113,26 @@ version (CRuntime_Glibc)
 }
 else version (CRuntime_Musl)
 {
-    alias c_long     blksize_t;
-    alias c_ulong    nlink_t;
+    version (AArch64)
+    {
+        alias int    blksize_t;
+        alias uint   nlink_t;
+    }
+    else version (MIPS64)
+    {
+        alias c_long blksize_t;
+        alias uint   nlink_t;
+    }
+    else version (RISCV64)
+    {
+        alias int    blksize_t;
+        alias uint   nlink_t;
+    }
+    else
+    {
+        alias c_long blksize_t;
+        alias c_ulong nlink_t;
+    }
     alias long       dev_t;
     alias long       blkcnt_t;
     alias ulong      ino_t;
@@ -121,10 +140,33 @@ else version (CRuntime_Musl)
     alias int        pid_t;
     alias uint       uid_t;
     alias uint       gid_t;
+
+    /**
+     * Musl versions before v1.2.0 (up to v1.1.24) had different
+     * definitions for `time_t` for 32 bits.
+     * This was changed to always be 64 bits in v1.2.0:
+     * https://musl.libc.org/time64.html
+     * This change was only for 32 bits system and
+     * didn't affect 64 bits systems
+     *
+     * To check previous definitions, `grep` for `time_t` in `arch/`,
+     * and the result should be (in v1.1.24):
+     * ---
+     * // arch/riscv64/bits/alltypes.h.in:20:TYPEDEF long time_t;
+     * // arch/s390x/bits/alltypes.h.in:17:TYPEDEF long time_t;
+     * // arch/sh/bits/alltypes.h.in:21:TYPEDEF long time_t;
+     * ---
+     *
+     * In order to be compatible with old versions of Musl,
+     * one can recompile druntime with `CRuntime_Musl_Pre_Time64`.
+     */
     version (D_X32)
         alias long   time_t;
-    else
+    else version (CRuntime_Musl_Pre_Time64)
         alias c_long time_t;
+    else
+        alias long   time_t;
+
     alias c_long     clock_t;
     alias c_ulong    pthread_t;
     version (D_LP64)
@@ -657,6 +699,18 @@ version (CRuntime_Glibc)
         enum __SIZEOF_PTHREAD_BARRIER_T = 32;
         enum __SIZEOF_PTHREAD_BARRIERATTR_T = 4;
     }
+    else version (SPARC)
+    {
+        enum __SIZEOF_PTHREAD_ATTR_T = 36;
+        enum __SIZEOF_PTHREAD_MUTEX_T = 24;
+        enum __SIZEOF_PTHREAD_MUTEXATTR_T = 4;
+        enum __SIZEOF_PTHREAD_COND_T = 48;
+        enum __SIZEOF_PTHREAD_CONDATTR_T = 4;
+        enum __SIZEOF_PTHREAD_RWLOCK_T = 32;
+        enum __SIZEOF_PTHREAD_RWLOCKATTR_T = 8;
+        enum __SIZEOF_PTHREAD_BARRIER_T = 20;
+        enum __SIZEOF_PTHREAD_BARRIERATTR_T = 4;
+    }
     else version (SPARC64)
     {
         enum __SIZEOF_PTHREAD_ATTR_T = 56;
@@ -834,7 +888,7 @@ else version (Darwin)
 {
     version (D_LP64)
     {
-        enum __PTHREAD_SIZE__               = 1168;
+        enum __PTHREAD_SIZE__               = 8176;
         enum __PTHREAD_ATTR_SIZE__          = 56;
         enum __PTHREAD_MUTEXATTR_SIZE__     = 8;
         enum __PTHREAD_MUTEX_SIZE__         = 56;
@@ -846,7 +900,7 @@ else version (Darwin)
     }
     else
     {
-        enum __PTHREAD_SIZE__               = 596;
+        enum __PTHREAD_SIZE__               = 4088;
         enum __PTHREAD_ATTR_SIZE__          = 36;
         enum __PTHREAD_MUTEXATTR_SIZE__     = 8;
         enum __PTHREAD_MUTEX_SIZE__         = 40;

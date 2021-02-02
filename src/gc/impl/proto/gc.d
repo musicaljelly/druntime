@@ -241,6 +241,11 @@ class ProtoGC : GC
         return false;
     }
 
+    ulong allocatedInCurrentThread() nothrow
+    {
+        return stats().allocatedInCurrentThread;
+    }
+
     // !!!
     // Empty implementations of the scrapheap functions
     void initializeScrapheapOnThisThread(size_t initScrapheapSize) nothrow {}

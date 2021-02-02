@@ -1,7 +1,7 @@
 include ../common.mak
 
 TESTS=stderr_msg unittest_assert invalid_memory_operation unknown_gc static_dtor \
-	  future_message rt_trap_exceptions_drt catch_in_finally
+	  future_message refcounted rt_trap_exceptions_drt catch_in_finally
 
 ifeq ($(OS)-$(BUILD),linux-debug)
 	TESTS+=line_trace long_backtrace_trunc rt_trap_exceptions
@@ -85,15 +85,24 @@ $(ROOT)/rt_trap_exceptions_drt_gdb.done: $(ROOT)/rt_trap_exceptions_drt
 	$(QUIET)$(TIMELIMIT) $(GDB) -n -ex 'set confirm off' -ex run -ex 'bt full' -ex q --args $< --DRT-trapExceptions=0 \
 		> $(ROOT)/rt_trap_exceptions_drt_gdb.output 2>&1 || true
 	cat $(ROOT)/rt_trap_exceptions_drt_gdb.output
-	grep "in D main (args=...) at src/rt_trap_exceptions_drt.d:9" > /dev/null < $(ROOT)/rt_trap_exceptions_drt_gdb.output
+	grep "in D main (args=...) at .*rt_trap_exceptions_drt.d:9" > /dev/null < $(ROOT)/rt_trap_exceptions_drt_gdb.output
 	grep 'myLocal' > /dev/null < $(ROOT)/rt_trap_exceptions_drt_gdb.output
 	! grep "No stack." > /dev/null < $(ROOT)/rt_trap_exceptions_drt_gdb.output
 	@touch $@
 
-$(ROOT)/unittest_assert: DFLAGS+=-unittest
+$(ROOT)/refcounted.done: $(ROOT)/refcounted
+	$(QUIET) $<
+	@touch $@
+
+ifeq (ldmd,$(findstring ldmd,$(HOST_DC)))
+# LDC: Make sure allocation intended to provoke exception is not elided.
+$(ROOT)/invalid_memory_operation: DFLAGS+=-disable-gc2stack
+endif
+$(ROOT)/unittest_assert: DFLAGS+=-unittest -version=CoreUnittest
 $(ROOT)/line_trace: DFLAGS+=$(LINE_TRACE_DFLAGS)
 $(ROOT)/rt_trap_exceptions_drt: DFLAGS+=-g
-$(ROOT)/assert_fail: DFLAGS+=-checkaction=context
+$(ROOT)/refcounted: DFLAGS+=-dip1008
+
 $(ROOT)/%: $(SRC)/%.d $(DMD) $(DRUNTIME)
 	$(QUIET)$(DMD) $(DFLAGS) -of$@ $<
 

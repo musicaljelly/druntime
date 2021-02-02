@@ -19,6 +19,7 @@ private import core.sys.posix.signal; // for sigset_t
 
 version (Posix):
 extern (C) nothrow @nogc:
+@system:
 
 version (RISCV32) version = RISCV_Any;
 version (RISCV64) version = RISCV_Any;
@@ -211,7 +212,7 @@ else version (FreeBSD)
     {
         enum _JBLEN = 31;
         // __int128_t
-        struct _jmp_buf { long[2][_JBLEN + 1] _jb; };
+        struct _jmp_buf { long[2][_JBLEN + 1] _jb; }
     }
     else version (PPC_Any)
     {
@@ -363,7 +364,7 @@ else version (CRuntime_UClibc)
                 double[8] __fpregs;
             else
                 double[6] __fpregs;
-        };
+        }
     }
     else
         static assert(0, "unimplemented");
@@ -423,7 +424,7 @@ else version (FreeBSD)
     else version (AArch64)
     {
         // __int128_t
-        struct _sigjmp_buf { long[2][_JBLEN + 1] _jb; };
+        struct _sigjmp_buf { long[2][_JBLEN + 1] _jb; }
     }
     else version (PPC_Any)
     {

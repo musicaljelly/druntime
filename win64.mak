@@ -2,6 +2,10 @@
 
 MODEL=64
 
+# Visual Studio 2019
+#VCDIR=\Program Files (x86)\Microsoft Visual Studio\2019\Community\VC\Tools\MSVC\14.27.29110
+#SDKDIR=\Program Files (x86)\Windows Kits\10\Include\10.0.18362.0
+# Visual Studio 2015 and before
 VCDIR=\Program Files (x86)\Microsoft Visual Studio 10.0\VC
 SDKDIR=\Program Files (x86)\Microsoft SDKs\Windows\v7.0A
 
@@ -10,24 +14,32 @@ BUILD=release
 OS=windows
 DMD=$(DMD_DIR)\generated\$(OS)\$(BUILD)\$(MODEL)\dmd
 
-CC=$(VCDIR)\bin\amd64\cl
-LD=$(VCDIR)\bin\amd64\link
-AR=$(VCDIR)\bin\amd64\lib
+# Visual Studio 2017/2019
+#BINDIR=$(VCDIR)\bin\Hostx64\x64
+# Visual Studio 2015 and before
+BINDIR=$(VCDIR)\bin\amd64
+
+CC=$(BINDIR)\cl
+LD=$(BINDIR)\link
+AR=$(BINDIR)\lib
 CP=cp
 
 DOCDIR=doc
 IMPDIR=import
 
 MAKE=make
+HOST_DMD=dmd
 
-DFLAGS=-m$(MODEL) -conf= -O -release -dip1000 -preview=fieldwise -inline -w -Isrc -Iimport
+DFLAGS=-m$(MODEL) -conf= -O -release -dip1000 -preview=fieldwise -preview=dtorfields -inline -w -Isrc -Iimport
 UDFLAGS=-m$(MODEL) -conf= -O -release -dip1000 -preview=fieldwise -w -version=_MSC_VER_$(_MSC_VER) -Isrc -Iimport
 DDOCFLAGS=-conf= -c -w -o- -Isrc -Iimport -version=CoreDdoc
 
-UTFLAGS=-version=CoreUnittest -unittest
+UTFLAGS=-version=CoreUnittest -unittest -checkaction=context
 
 #CFLAGS=/O2 /I"$(VCDIR)"\INCLUDE /I"$(SDKDIR)"\Include
 CFLAGS=/Z7 /I"$(VCDIR)"\INCLUDE /I"$(SDKDIR)"\Include
+# Visual Studio 2019
+#CFLAGS=/Z7 /I"$(VCDIR)"\include /I"$(SDKDIR)"\ucrt
 
 DRUNTIME_BASE=druntime$(MODEL)
 DRUNTIME=lib\$(DRUNTIME_BASE).lib
@@ -53,13 +65,13 @@ OBJS_TO_DELETE= errno_c_$(MODEL).obj msvc_$(MODEL).obj msvc_math_$(MODEL).obj
 ######################## Header file generation ##############################
 
 import:
-	"$(MAKE)" -f mak/WINDOWS import DMD="$(DMD)" IMPDIR="$(IMPDIR)"
+	"$(MAKE)" -f mak/WINDOWS import DMD="$(DMD)" HOST_DMD="$(HOST_DMD)" MODEL=$(MODEL) IMPDIR="$(IMPDIR)"
 
 copydir:
-	"$(MAKE)" -f mak/WINDOWS copydir IMPDIR="$(IMPDIR)"
+	"$(MAKE)" -f mak/WINDOWS copydir HOST_DMD="$(HOST_DMD)" MODEL=$(MODEL) IMPDIR="$(IMPDIR)"
 
 copy:
-	"$(MAKE)" -f mak/WINDOWS copy DMD="$(DMD)" IMPDIR="$(IMPDIR)"
+	"$(MAKE)" -f mak/WINDOWS copy DMD="$(DMD)" HOST_DMD="$(HOST_DMD)" MODEL=$(MODEL) IMPDIR="$(IMPDIR)"
 
 ################### C\ASM Targets ############################
 
@@ -104,6 +116,9 @@ test_aa:
 test_cpuid:
 	"$(MAKE)" -f test\cpuid\win64.mak "DMD=$(DMD)" MODEL=$(MODEL) "VCDIR=$(VCDIR)" DRUNTIMELIB=$(DRUNTIME) "CC=$(CC)" test
 
+test_exceptions:
+	"$(MAKE)" -f test\exceptions\win64.mak "DMD=$(DMD)" MODEL=$(MODEL) "VCDIR=$(VCDIR)" DRUNTIMELIB=$(DRUNTIME) "CC=$(CC)" test
+
 test_hash:
 	"$(DMD)" -m$(MODEL) -conf= -Isrc -defaultlib=$(DRUNTIME) -run test\hash\src\test_hash.d
 
@@ -120,7 +135,9 @@ custom_gc:
 test_shared:
 	$(MAKE) -f test\shared\win64.mak "DMD=$(DMD)" MODEL=$(MODEL) "VCDIR=$(VCDIR)" DRUNTIMELIB=$(DRUNTIME) "CC=$(CC)" test
 
-test_all: test_shared test_uuid test_aa test_cpuid test_hash test_stdcpp test_gc custom_gc
+test_mingw: test_shared test_aa test_cpuid test_exceptions test_hash test_gc custom_gc
+
+test_all: test_mingw test_uuid test_stdcpp
 
 ################### zip/install/clean ##########################
 
@@ -139,6 +156,8 @@ clean:
 	del $(DRUNTIME) $(OBJS_TO_DELETE)
 	rmdir /S /Q $(DOCDIR) $(IMPDIR)
 
-auto-tester-build: target
+auto-tester-build:
+	echo "Windows builds have been disabled on auto-tester"
 
-auto-tester-test: unittest test_all
+auto-tester-test:
+	echo "Windows builds have been disabled on auto-tester"

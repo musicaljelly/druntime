@@ -31,7 +31,7 @@ INSTALL_DIR=../install
 DOCDIR=doc
 IMPDIR=import
 
-OPTIONAL_COVERAGE:=$(if $(TEST_COVERAGE),-cov,)
+OPTIONAL_COVERAGE:=$(if $(TEST_COVERAGE),-cov=ctfe,)
 
 # default to PIC on x86_64, use PIC=1/0 to en-/disable PIC.
 # Note that shared libraries and C files are always compiled with PIC.
@@ -51,7 +51,7 @@ endif
 ifeq (osx,$(OS))
 	DOTDLL:=.dylib
 	DOTLIB:=.a
-	export MACOSX_DEPLOYMENT_TARGET=10.7
+	export MACOSX_DEPLOYMENT_TARGET=10.9
 else
 	DOTDLL:=.so
 	DOTLIB:=.a
@@ -79,7 +79,7 @@ ifeq (solaris,$(OS))
 endif
 
 # Set DFLAGS
-UDFLAGS:=-conf= -Isrc -Iimport -w -de -dip1000 -preview=fieldwise $(MODEL_FLAG) $(PIC) $(OPTIONAL_COVERAGE)
+UDFLAGS:=-conf= -Isrc -Iimport -w -de -dip1000 -preview=fieldwise $(MODEL_FLAG) $(PIC) $(OPTIONAL_COVERAGE) -preview=dtorfields
 ifeq ($(BUILD),debug)
 	UDFLAGS += -g -debug
 	DFLAGS:=$(UDFLAGS)
@@ -88,7 +88,7 @@ else
 	DFLAGS:=$(UDFLAGS) -inline # unittests don't compile with -inline
 endif
 
-UTFLAGS:=-version=CoreUnittest -unittest
+UTFLAGS:=-version=CoreUnittest -unittest -checkaction=context
 
 # Set PHOBOS_DFLAGS (for linking against Phobos)
 PHOBOS_PATH=../phobos
@@ -156,6 +156,12 @@ $(DOCDIR)/core_experimental_%.html : src/core/experimental/%.d $(DMD)
 $(DOCDIR)/core_gc_%.html : src/core/gc/%.d $(DMD)
 	$(DMD) $(DDOCFLAGS) -Df$@ project.ddoc $(DOCFMT) $<
 
+$(DOCDIR)/core_internal_%.html : src/core/internal/%.d $(DMD)
+	$(DMD) $(DDOCFLAGS) -Df$@ project.ddoc $(DOCFMT) $<
+
+$(DOCDIR)/core_internal_elf_%.html : src/core/internal/elf/%.d $(DMD)
+	$(DMD) $(DDOCFLAGS) -Df$@ project.ddoc $(DOCFMT) $<
+
 $(DOCDIR)/core_stdc_%.html : src/core/stdc/%.d $(DMD)
 	$(DMD) $(DDOCFLAGS) -Df$@ project.ddoc $(DOCFMT) $<
 
@@ -174,10 +180,10 @@ $(DOCDIR)/core_sys_darwin_mach_%.html : src/core/sys/darwin/mach/%.d $(DMD)
 $(DOCDIR)/core_sys_darwin_netinet_%.html : src/core/sys/darwin/netinet/%.d $(DMD)
 	$(DMD) $(DDOCFLAGS) -Df$@ project.ddoc $(DOCFMT) $<
 
-$(DOCDIR)/core_internal_array_%.html : src/core/internal/array/%.d $(DMD)
+$(DOCDIR)/core_thread.html : src/core/thread/package.d $(DMD)
 	$(DMD) $(DDOCFLAGS) -Df$@ project.ddoc $(DOCFMT) $<
 
-$(DOCDIR)/core_internal_util_%.html : src/core/internal/util/%.d $(DMD)
+$(DOCDIR)/core_thread_%.html : src/core/thread/%.d $(DMD)
 	$(DMD) $(DDOCFLAGS) -Df$@ project.ddoc $(DOCFMT) $<
 
 $(DOCDIR)/rt_%.html : src/rt/%.d $(DMD)
@@ -270,7 +276,6 @@ endif
 .PHONY : unittest
 ifeq (1,$(BUILD_WAS_SPECIFIED))
 unittest : $(UT_MODULES) $(addsuffix /.run,$(ADDITIONAL_TESTS))
-	@echo done
 else
 unittest : unittest-debug unittest-release
 unittest-%: target
@@ -373,10 +378,15 @@ druntime.zip: $(MANIFEST)
 	rm -rf $@
 	zip $@ $^
 
+ifneq (,$(findstring Darwin_64_32, $(PWD)))
+install:
+	echo "Darwin_64_32_disabled"
+else
 install: target
 	mkdir -p $(INSTALL_DIR)/src/druntime/import
 	cp -r import/* $(INSTALL_DIR)/src/druntime/import/
 	cp LICENSE.txt $(INSTALL_DIR)/druntime-LICENSE.txt
+endif
 
 clean: $(addsuffix /.clean,$(ADDITIONAL_TESTS))
 	rm -rf $(ROOT_OF_THEM_ALL) $(IMPDIR) $(DOCDIR) druntime.zip
@@ -434,6 +444,24 @@ style_lint:
 
 	@echo "Enforce no whitespace after opening parenthesis"
 	$(GREP) -nrE "\<(version) \( " $$(find src -name '*.d') ; test $$? -eq 1
+
+################################################################################
+# Check for missing imports in public unittest examples.
+################################################################################
+
+PUBLICTESTS_DIR=$(ROOT)/publictests
+publictests: $(addsuffix .publictests, $(basename $(SRCS)))
+
+################################################################################
+# Extract public tests of a module and test them in an separate file (i.e. without its module)
+# This is done to check for potentially missing imports in the examples, e.g.
+# make -f posix.mak src/core/time.publictests
+################################################################################
+%.publictests: %.d $(TESTS_EXTRACTOR) $(DRUNTIME) | $(PUBLICTESTS_DIR)/.directory
+	@$(TESTS_EXTRACTOR) --inputdir  $< --outputdir $(PUBLICTESTS_DIR)
+	@$(DMD) -main $(UDFLAGS) $(UTFLAGS) -defaultlib= -debuglib= -od$(PUBLICTESTS_DIR) $(DRUNTIME) -run $(PUBLICTESTS_DIR)/$(subst /,_,$<)
+
+################################################################################
 
 .PHONY : auto-tester-build
 ifneq (,$(findstring Darwin_64_32, $(PWD)))

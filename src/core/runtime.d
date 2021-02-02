@@ -10,6 +10,8 @@
 
 module core.runtime;
 
+private import core.internal.execinfo;
+
 version (OSX)
     version = Darwin;
 else version (iOS)
@@ -540,25 +542,23 @@ extern (C) void profilegc_setlogfilename(string name);
  * If no unittest custom handlers are registered, the following algorithm is
  * executed (the behavior can be affected by the `--DRT-testmode` switch
  * below):
- * 1. Run all unit tests, tracking tests executed and passes. For each that
- *    fails, print the stack trace, and continue.
- * 2. If there are no failures, set the summarize flag to false, and the
- *    runMain flag to true.
- * 3. If there are failures, set the summarize flag to true, and the runMain
- *    flag to false.
+ * 1. Execute any unittests present. For each that fails, print the stack
+ *    trace and continue.
+ * 2. If no unittests were present, set summarize to false, and runMain to
+ *    true.
+ * 3. Otherwise, set summarize to true, and runMain to false.
  *
  * See the documentation for `UnitTestResult` for details on how the runtime
  * treats the return value from this function.
  *
  * If the switch `--DRT-testmode` is passed to the executable, it can have
  * one of 3 values:
- * 1. "run-main": even if unit tests are run (and all pass), main is still run.
- *    This is currently the default.
+ * 1. "run-main": even if unit tests are run (and all pass), runMain is set
+      to true.
  * 2. "test-or-main": any unit tests present will cause the program to
- *    summarize the results and exit regardless of the result. This will be the
- *    default in 2.080.
- * 3. "test-only", the runtime will always summarize and never run main, even
- *    if no tests are present.
+ *    summarize the results and exit regardless of the result. This is the
+ *    default.
+ * 3. "test-only", runMain is set to false, even with no tests present.
  *
  * This command-line parameter does not affect custom unit test handlers.
  *
@@ -567,25 +567,10 @@ extern (C) void profilegc_setlogfilename(string name);
  */
 extern (C) UnitTestResult runModuleUnitTests()
 {
-    // backtrace
-    version (CRuntime_Glibc)
-        import core.sys.linux.execinfo;
-    else version (Darwin)
-        import core.sys.darwin.execinfo;
-    else version (FreeBSD)
-        import core.sys.freebsd.execinfo;
-    else version (NetBSD)
-        import core.sys.netbsd.execinfo;
-    else version (DragonFlyBSD)
-        import core.sys.dragonflybsd.execinfo;
-    else version (Windows)
+    version (Windows)
         import core.sys.windows.stacktrace;
-    else version (Solaris)
-        import core.sys.solaris.execinfo;
-    else version (CRuntime_UClibc)
-        import core.sys.linux.execinfo;
 
-    static if ( __traits( compiles, backtrace ) )
+    static if (hasExecinfo)
     {
         import core.sys.posix.signal; // segv handler
 
@@ -670,8 +655,6 @@ extern (C) UnitTestResult runModuleUnitTests()
     }
     else switch (rt_configOption("testmode", null, false))
     {
-    case "":
-        // By default, run main. Switch to only doing unit tests in 2.080
     case "run-main":
         results.runMain = true;
         break;
@@ -679,6 +662,8 @@ extern (C) UnitTestResult runModuleUnitTests()
         // Never run main, always summarize
         results.summarize = true;
         break;
+    case "":
+        // By default, do not run main if tests are present.
     case "test-or-main":
         // only run main if there were no tests. Only summarize if we are not
         // running main.
@@ -686,7 +671,7 @@ extern (C) UnitTestResult runModuleUnitTests()
         results.summarize = !results.runMain;
         break;
     default:
-        throw new Error("Unknown --DRT-testmode option: " ~ rt_configOption("testmode", null, false));
+        assert(0, "Unknown --DRT-testmode option: " ~ rt_configOption("testmode", null, false));
     }
 
     return results;
@@ -751,41 +736,26 @@ unittest
     }
 }
 
-version (CRuntime_Glibc)       version = HasBacktrace;
-else version (Darwin)          version = HasBacktrace;
-else version (FreeBSD)         version = HasBacktrace;
-else version (NetBSD)          version = HasBacktrace;
-else version (DragonFlyBSD)    version = HasBacktrace;
-else version (Solaris)         version = HasBacktrace;
-else version (CRuntime_UClibc) version = HasBacktrace;
-
 /// Default implementation for most POSIX systems
-version (HasBacktrace) private class DefaultTraceInfo : Throwable.TraceInfo
+static if (hasExecinfo) private class DefaultTraceInfo : Throwable.TraceInfo
 {
-    // backtrace
-    version (CRuntime_Glibc)
-        import core.sys.linux.execinfo;
-    else version (Darwin)
-        import core.sys.darwin.execinfo;
-    else version (FreeBSD)
-        import core.sys.freebsd.execinfo;
-    else version (NetBSD)
-        import core.sys.netbsd.execinfo;
-    else version (DragonFlyBSD)
-        import core.sys.dragonflybsd.execinfo;
-    else version (Solaris)
-        import core.sys.solaris.execinfo;
-    else version (CRuntime_UClibc)
-        import core.sys.linux.execinfo;
-
     import core.demangle;
     import core.stdc.stdlib : free;
     import core.stdc.string : strlen, memchr, memmove;
 
     this()
     {
-        numframes = 0; //backtrace( callstack, MAXFRAMES );
-        if (numframes < 2) // backtrace() failed, do it ourselves
+        // it may not be 1 but it is good enough to get
+        // in CALL instruction address range for backtrace
+        enum CALL_INSTRUCTION_SIZE = 1;
+
+        static if (__traits(compiles, backtrace((void**).init, int.init)))
+            numframes = backtrace(this.callstack.ptr, MAXFRAMES);
+        // Backtrace succeeded, adjust the frame to point to the caller
+        if (numframes >= 2)
+            foreach (ref elem; this.callstack)
+                elem -= CALL_INSTRUCTION_SIZE;
+        else // backtrace() failed, do it ourselves
         {
             static void** getBasePtr()
             {
@@ -810,8 +780,6 @@ version (HasBacktrace) private class DefaultTraceInfo : Throwable.TraceInfo
                           stackPtr < stackBottom &&
                           numframes < MAXFRAMES; )
                 {
-                    enum CALL_INSTRUCTION_SIZE = 1; // it may not be 1 but it is good enough to get
-                    // in CALL instruction address range for backtrace
                     callstack[numframes++] = *(stackPtr + 1) - CALL_INSTRUCTION_SIZE;
                     stackPtr = cast(void**) *stackPtr;
                 }
@@ -829,12 +797,22 @@ version (HasBacktrace) private class DefaultTraceInfo : Throwable.TraceInfo
 
     override int opApply( scope int delegate(ref size_t, ref const(char[])) dg ) const
     {
-        // NOTE: The first 4 frames with the current implementation are
+        // NOTE: The first few frames with the current implementation are
         //       inside core.runtime and the object code, so eliminate
         //       these for readability.  The alternative would be to
         //       exclude the first N frames that are in a list of
         //       mangled function names.
-        enum FIRSTFRAME = 4;
+        // The frames are:
+        // - core.runtime.DefaultTraceInfo.__ctor()
+        // - core.runtime.defaultTraceHandler(void*)
+        // - _d_traceContext
+        // - _d_createTrace
+        // - _d_throwdwarf
+        // If it's an assertion failure, `_d_assertp`
+        version (Darwin)
+            enum FIRSTFRAME = 5;
+        else
+            enum FIRSTFRAME = 5;
 
         version (linux) enum enableDwarf = true;
         else version (FreeBSD) enum enableDwarf = true;
@@ -848,7 +826,7 @@ version (HasBacktrace) private class DefaultTraceInfo : Throwable.TraceInfo
 
             alias traceHandlerOpApplyImpl = externDFunc!(
                 "rt.backtrace.dwarf.traceHandlerOpApplyImpl",
-                int function(const void*[], scope int delegate(ref size_t, ref const(char[])))
+                int function(const(void*)[], scope int delegate(ref size_t, ref const(char[])))
                 );
 
             if (numframes >= FIRSTFRAME)
@@ -900,75 +878,8 @@ private:
     const(char)[] fixline( const(char)[] buf, return ref char[4096] fixbuf ) const
     {
         size_t symBeg, symEnd;
-        version (Darwin)
-        {
-            // format is:
-            //  1  module    0x00000000 D6module4funcAFZv + 0
-            for ( size_t i = 0, n = 0; i < buf.length; i++ )
-            {
-                if ( ' ' == buf[i] )
-                {
-                    n++;
-                    while ( i < buf.length && ' ' == buf[i] )
-                        i++;
-                    if ( 3 > n )
-                        continue;
-                    symBeg = i;
-                    while ( i < buf.length && ' ' != buf[i] )
-                        i++;
-                    symEnd = i;
-                    break;
-                }
-            }
-        }
-        else version (CRuntime_Glibc)
-        {
-            // format is:  module(_D6module4funcAFZv) [0x00000000]
-            // or:         module(_D6module4funcAFZv+0x78) [0x00000000]
-            auto bptr = cast(char*) memchr( buf.ptr, '(', buf.length );
-            auto eptr = cast(char*) memchr( buf.ptr, ')', buf.length );
-            auto pptr = cast(char*) memchr( buf.ptr, '+', buf.length );
 
-            if (pptr && pptr < eptr)
-                eptr = pptr;
-
-            if ( bptr++ && eptr )
-            {
-                symBeg = bptr - buf.ptr;
-                symEnd = eptr - buf.ptr;
-            }
-        }
-        else
-        {
-            // format is: 0x00000000 <_D6module4funcAFZv+0x78> at module
-            version (FreeBSD)
-                enum StartChar = '<';
-            else version (NetBSD)
-                enum StartChar = '<';
-            else version (DragonFlyBSD)
-                enum StartChar = '<';
-            // format is object'symbol+offset [pc]
-            else version (Solaris)
-                enum StartChar = '\'';
-            // fallthrough
-            else
-                enum StartChar = '\0';
-
-            if (StartChar != '\0')
-            {
-                auto bptr = cast(char*) memchr(buf.ptr, StartChar, buf.length);
-                auto eptr = cast(char*) memchr(buf.ptr, '+', buf.length);
-
-                if (bptr++ && eptr)
-                {
-                    symBeg = bptr - buf.ptr;
-                    symEnd = eptr - buf.ptr;
-                }
-            }
-        }
-
-        assert(symBeg < buf.length && symEnd < buf.length);
-        assert(symBeg <= symEnd);
+        getMangledSymbolName(buf, symBeg, symEnd);
 
         enum min = (size_t a, size_t b) => a <= b ? a : b;
         if (symBeg == symEnd || symBeg >= fixbuf.length)

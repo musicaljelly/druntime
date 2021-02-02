@@ -23,6 +23,7 @@ else version (WatchOS)
     version = Darwin;
 
 nothrow @nogc extern(C):
+@system:
 
 //
 // XOpen (XSI)
@@ -525,6 +526,7 @@ else version (CRuntime_Bionic)
 else version (CRuntime_Musl)
 {
     alias ulong rlim_t;
+    enum RLIM_INFINITY = cast(c_ulong)(~0UL);
 
     int getrlimit(int, rlimit*);
     int setrlimit(int, const scope rlimit*);

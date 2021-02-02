@@ -273,6 +273,11 @@ class ManualGC : GC
         return false;
     }
 
+    ulong allocatedInCurrentThread() nothrow
+    {
+        return typeof(return).init;
+    }
+
     // !!!
     // Empty implementations of the scrapheap functions
     void initializeScrapheapOnThisThread(size_t initScrapheapSize) nothrow {}

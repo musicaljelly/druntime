@@ -8,13 +8,12 @@
  * Source: $(DRUNTIMESRC core/internal/_convert.d)
  */
 module core.internal.convert;
-import core.internal.traits : Unqual;
 
 /+
 A @nogc function can allocate memory during CTFE.
 +/
 @nogc nothrow pure @trusted
-private ubyte[] ctfe_alloc()(size_t n)
+private ubyte[] ctfe_alloc(size_t n)
 {
     if (!__ctfe)
     {
@@ -34,8 +33,7 @@ private ubyte[] ctfe_alloc()(size_t n)
 }
 
 @trusted pure nothrow @nogc
-const(ubyte)[] toUbyte(T)(const ref T val) if (is(Unqual!T == float) || is(Unqual!T == double) || is(Unqual!T == real) ||
-                                        is(Unqual!T == ifloat) || is(Unqual!T == idouble) || is(Unqual!T == ireal))
+const(ubyte)[] toUbyte(T)(const ref T val) if (__traits(isFloating, T) && (is(T : real) || is(T : ireal)))
 {
     if (__ctfe)
     {
@@ -67,6 +65,49 @@ const(ubyte)[] toUbyte(T)(const ref T val) if (is(Unqual!T == float) || is(Unqua
                 }
             }
             return result;
+        }
+        else static if (floatFormat!T == FloatFormat.DoubleDouble)
+        {
+            // Parse DoubleDoubles as a pair of doubles.
+            // The layout of the type is:
+            //
+            //   [1|    11    |       52      ][1|    11    |       52       ]
+            //   [S| Exponent | Fraction (hi) ][S| Exponent | Fraction (low) ]
+            //
+            // We can get the least significant bits by subtracting the IEEE
+            // double precision portion from the real value.
+
+            import core.math : toPrec;
+
+            ubyte[] buff = ctfe_alloc(T.sizeof);
+            enum msbSize = double.sizeof;
+
+            static if (is(T : ireal))
+                double hi = toPrec!double(val.im);
+            else
+                double hi = toPrec!double(val);
+            buff[0 .. msbSize] = toUbyte(hi)[];
+
+            if (val is cast(T)0.0 || val is cast(T)-0.0 ||
+                val is T.nan || val is -T.nan ||
+                val is T.infinity || val > T.max ||
+                val is -T.infinity || val < -T.max)
+            {
+                // Zero, NaN, and Inf are all representable as doubles, so the
+                // least significant part can be 0.0.
+                buff[msbSize .. $] = 0;
+            }
+            else
+            {
+                static if (is(T : ireal))
+                    double low = toPrec!double(val.im - hi);
+                else
+                    double low = toPrec!double(val - hi);
+                buff[msbSize .. $] = toUbyte(low)[];
+            }
+
+            // Arrays don't index differently between little and big-endian targets.
+            return buff;
         }
         else
         {
@@ -140,7 +181,7 @@ const(ubyte)[] toUbyte(T)(const ref T val) if (is(Unqual!T == float) || is(Unqua
 }
 
 @safe pure nothrow @nogc
-private Float parse(bool is_denormalized = false, T)(T x) if (is(Unqual!T == ifloat) || is(Unqual!T == idouble) || is(Unqual!T == ireal))
+private Float parse(bool is_denormalized = false, T:ireal)(T x)
 {
     return parse(x.im);
 }
@@ -148,6 +189,7 @@ private Float parse(bool is_denormalized = false, T)(T x) if (is(Unqual!T == ifl
 @safe pure nothrow @nogc
 private Float parse(bool is_denormalized = false, T:real)(T x_) if (floatFormat!T != FloatFormat.Real80)
 {
+    import core.internal.traits : Unqual;
     Unqual!T x = x_;
     static assert(floatFormat!T != FloatFormat.DoubleDouble,
            "doubledouble float format not supported in CTFE");
@@ -206,6 +248,7 @@ private Float parse(bool is_denormalized = false, T:real)(T x_) if (floatFormat!
 @safe pure nothrow @nogc
 private Float parse(bool _ = false, T:real)(T x_) if (floatFormat!T == FloatFormat.Real80)
 {
+    import core.internal.traits : Unqual;
     Unqual!T x = x_;
     //HACK @@@3632@@@
 
@@ -429,14 +472,14 @@ private Float denormalizedMantissa(T)(T x, uint sign) if (floatFormat!T == Float
         return Float(fl.mantissa2 & 0x00FFFFFFFFFFFFFFUL , 0, sign, 1);
 }
 
-version (unittest)
+@system unittest
 {
-    private const(ubyte)[] toUbyte2(T)(T val)
+    static const(ubyte)[] toUbyte2(T)(T val)
     {
         return toUbyte(val).dup;
     }
 
-    private void testNumberConvert(string v)()
+    static void testNumberConvert(string v)()
     {
         enum ctval = mixin(v);
 
@@ -452,7 +495,7 @@ version (unittest)
         assert(rtbytes[0..testsize] == ctbytes[0..testsize]);
     }
 
-    private void testConvert()
+    static void testConvert()
     {
         /**Test special values*/
         testNumberConvert!("-float.infinity");
@@ -562,11 +605,7 @@ version (unittest)
         testNumberConvert!("cast(float)0x9.54bb0d88806f714p-7088L");
     }
 
-
-    unittest
-    {
-        testConvert();
-    }
+    testConvert();
 }
 
 
@@ -659,6 +698,7 @@ const(ubyte)[] toUbyte(T)(const ref T val) if (__traits(isIntegral, T) && !is(T 
     }
     else if (__ctfe)
     {
+        import core.internal.traits : Unqual;
         ubyte[] tmp = ctfe_alloc(T.sizeof);
         Unqual!T val_ = val;
         for (size_t i = 0; i < T.sizeof; ++i)
@@ -700,7 +740,7 @@ const(ubyte)[] toUbyte(T)(const ref T val) if (is(T == __vector))
 }
 
 @trusted pure nothrow @nogc
-const(ubyte)[] toUbyte(T)(const ref T val) if (is(Unqual!T == cfloat) || is(Unqual!T == cdouble) ||is(Unqual!T == creal))
+const(ubyte)[] toUbyte(T)(const ref T val) if (__traits(isFloating, T) && is(T : creal))
 {
     if (__ctfe)
     {

@@ -211,7 +211,7 @@ class ConservativeGC : GC
         gcx.initialize();
 
         if (config.initReserve)
-            gcx.reserve(config.initReserve << 20);
+            gcx.reserve(config.initReserve);
         if (config.disable)
             gcx.disabled++;
     }
@@ -496,7 +496,7 @@ class ConservativeGC : GC
 
         p = runLocked!(reallocNoSync, mallocTime, numMallocs)(p, size, bits, localAllocSize, ti);
 
-        if (p && p !is oldp && !(bits & BlkAttr.NO_SCAN))
+        if (p && !(bits & BlkAttr.NO_SCAN))
         {
             memset(p + size, 0, localAllocSize - size);
         }
@@ -634,7 +634,6 @@ class ConservativeGC : GC
         {
             pool.clrBits(biti, ~BlkAttr.NONE);
             pool.setBits(biti, bits);
-
         }
         return p;
     }
@@ -1022,7 +1021,7 @@ class ConservativeGC : GC
     }
 
 
-    bool inFinalizer() nothrow
+    bool inFinalizer() nothrow @nogc
     {
         return _inFinalizer;
     }
@@ -1104,7 +1103,7 @@ class ConservativeGC : GC
     }
 
 
-    core.memory.GC.ProfileStats profileStats() nothrow
+    core.memory.GC.ProfileStats profileStats() nothrow @trusted
     {
         typeof(return) ret;
 
@@ -1116,6 +1115,13 @@ class ConservativeGC : GC
 
         return ret;
     }
+
+
+    ulong allocatedInCurrentThread() nothrow
+    {
+        return bytesAllocated;
+    }
+
 
     //
     //
@@ -1175,7 +1181,6 @@ class ConservativeGC : GC
 
 enum
 {   PAGESIZE =    4096,
-    POOLSIZE =   (4096*256),
 }
 
 
@@ -1307,8 +1312,8 @@ struct Gcx
     {
         (cast(byte*)&this)[0 .. Gcx.sizeof] = 0;
         leakDetector.initialize(&this);
-        roots.initialize();
-        ranges.initialize();
+        roots.initialize(0x243F6A8885A308D3UL);
+        ranges.initialize(0x13198A2E03707344UL);
         smallCollectThreshold = largeCollectThreshold = 0.0f;
         usedSmallPages = usedLargePages = 0;
         mappedPages = 0;
@@ -1718,7 +1723,7 @@ struct Gcx
                     recoverNextPage(bin);
                 }
             }
-            else
+            else if (usedSmallPages > 0)
             {
                 fullcollect();
                 if (lowMem)
@@ -1803,7 +1808,7 @@ struct Gcx
                     minimize();
                 }
             }
-            else
+            else if (usedLargePages > 0)
             {
                 fullcollect();
                 minimize();
@@ -1856,7 +1861,7 @@ struct Gcx
         //debug(PRINTF) printf("************Gcx::newPool(npages = %d)****************\n", npages);
 
         // Minimum of POOLSIZE
-        size_t minPages = (config.minPoolSize << 20) / PAGESIZE;
+        size_t minPages = config.minPoolSize / PAGESIZE;
         if (npages < minPages)
             npages = minPages;
         else if (npages > minPages)
@@ -1873,7 +1878,7 @@ struct Gcx
             n = config.minPoolSize + config.incPoolSize * npools;
             if (n > config.maxPoolSize)
                 n = config.maxPoolSize;                 // cap pool size
-            n *= (1 << 20) / PAGESIZE;                     // convert MB to pages
+            n /= PAGESIZE; // convert bytes to pages
             if (npages < n)
                 npages = n;
         }
@@ -2461,7 +2466,7 @@ struct Gcx
                         {
                             bool hasDead = false;
                             static foreach (w; 0 .. PageBits.length)
-                                hasDead = hasDead && (~freebitsdata[w] != baseOffsetBits[bin][w]);
+                                hasDead = hasDead || (~freebitsdata[w] != baseOffsetBits[bin][w]);
                             if (hasDead)
                             {
                                 // add to recover chain
@@ -2656,6 +2661,20 @@ struct Gcx
         //printf("\tpool address range = %p .. %p\n", minAddr, maxAddr);
 
         {
+            version (COLLECT_PARALLEL)
+            {
+                bool doParallel = config.parallel > 0;
+                if (doParallel && !scanThreadData)
+                {
+                    if (nostack) // only used during shutdown, avoid starting threads for parallel marking
+                        doParallel = false;
+                    else
+                        startScanThreads();
+                }
+            }
+            else
+                enum doParallel = false;
+
             // lock roots and ranges around suspending threads b/c they're not reentrant safe
             rangesLock.lock();
             rootsLock.lock();
@@ -2673,11 +2692,6 @@ struct Gcx
             stop = currTime;
             prepTime += (stop - start);
             start = stop;
-
-            version (COLLECT_PARALLEL)
-                bool doParallel = config.parallel > 0;
-            else
-                enum doParallel = false;
 
             if (doParallel)
             {
@@ -2816,9 +2830,6 @@ struct Gcx
         void** pbot = toscanRoots._p;
         void** ptop = toscanRoots._p + toscanRoots._length;
 
-        if (!scanThreadData)
-            startScanThreads();
-
         debug(PARALLEL_PRINTF) printf("markParallel\n");
 
         size_t pointersPerThread = toscanRoots._length / (numScanThreads + 1);
@@ -2941,8 +2952,12 @@ struct Gcx
             if (scanThreadData[idx].tid != scanThreadData[idx].tid.init)
                 startedThreads++;
 
+        version (Windows)
+            alias allThreadsDead = thread_DLLProcessDetaching;
+        else
+            enum allThreadsDead = false;
         stopGC = true;
-        while (atomicLoad(stoppedThreads) < startedThreads)
+        while (atomicLoad(stoppedThreads) < startedThreads && !allThreadsDead)
         {
             evStart.set();
             evDone.wait(dur!"msecs"(1));
@@ -3119,6 +3134,8 @@ struct Pool
 
     void initialize(size_t npages, bool isLargeObject) nothrow
     {
+        assert(npages >= 256);
+
         this.isLargeObject = isLargeObject;
         size_t poolsize;
 
@@ -3126,7 +3143,6 @@ struct Pool
 
         //debug(PRINTF) printf("Pool::Pool(%u)\n", npages);
         poolsize = npages * PAGESIZE;
-        assert(poolsize >= POOLSIZE);
         baseAddr = cast(byte *)os_mem_map(poolsize);
 
         // Some of the code depends on page alignment of memory pools
@@ -3511,7 +3527,6 @@ struct Pool
         }
     }
 
-    pragma(inline,true)
     void setPointerBitmapSmall(void* p, size_t s, size_t allocSize, uint attr, const TypeInfo ti) nothrow
     {
         if (!(attr & BlkAttr.NO_SCAN))
@@ -4085,7 +4100,7 @@ debug(PRINTF_TO_FILE)
                 gcStartTick = MonoTime.currTime;
             immutable timeElapsed = MonoTime.currTime - gcStartTick;
             immutable secondsAsDouble = timeElapsed.total!"hnsecs" / cast(double)convert!("seconds", "hnsecs")(1);
-            len = fprintf(gcx_fh, "%10.6lf: ", secondsAsDouble);
+            len = fprintf(gcx_fh, "%10.6f: ", secondsAsDouble);
         }
         len += fprintf(gcx_fh, fmt, args);
         fflush(gcx_fh);
@@ -4154,7 +4169,7 @@ debug (LOGGING)
             printf("    p = %p, size = %lld, parent = %p ", p, cast(ulong)size, parent);
             if (file)
             {
-                printf("%s(%u)", file, line);
+                printf("%s(%u)", file, cast(uint)line);
             }
             printf("\n");
         }
@@ -4592,4 +4607,36 @@ unittest
 
     assert(stats2.maxPauseTime >= stats1.maxPauseTime);
     assert(stats2.maxCollectionTime >= stats1.maxCollectionTime);
+}
+
+// https://issues.dlang.org/show_bug.cgi?id=20214
+unittest
+{
+    import core.memory;
+    import core.stdc.stdio;
+
+    // allocate from large pool
+    auto o = GC.malloc(10);
+    auto p = (cast(void**)GC.malloc(4096 * (void*).sizeof))[0 .. 4096];
+    auto q = (cast(void**)GC.malloc(4096 * (void*).sizeof))[0 .. 4096];
+    if (p.ptr + p.length is q.ptr)
+    {
+        q[] = o; // fill with pointers
+
+        // shrink, unused area cleared?
+        auto nq = (cast(void**)GC.realloc(q.ptr, 4000 * (void*).sizeof))[0 .. 4000];
+        assert(q.ptr is nq.ptr);
+        assert(q.ptr[4095] !is o);
+
+        GC.free(q.ptr);
+        // expected to extend in place
+        auto np = (cast(void**)GC.realloc(p.ptr, 4200 * (void*).sizeof))[0 .. 4200];
+        assert(p.ptr is np.ptr);
+        assert(q.ptr[4200] !is o);
+    }
+    else
+    {
+        // adjacent allocations likely but not guaranteed
+        printf("unexpected pointers %p and %p\n", p.ptr, q.ptr);
+    }
 }

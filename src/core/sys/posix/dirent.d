@@ -31,6 +31,7 @@ version (Posix):
 extern (C):
 nothrow:
 @nogc:
+@system:
 
 //
 // Required
@@ -506,7 +507,7 @@ else version (CRuntime_Bionic)
 }
 else version (CRuntime_Musl)
 {
-
+    int readdir_r(DIR*, dirent*, dirent**);
 }
 else version (CRuntime_UClibc)
 {
@@ -591,6 +592,8 @@ else version (CRuntime_Bionic)
 }
 else version (CRuntime_Musl)
 {
+    void   seekdir(DIR*, c_long);
+    c_long telldir(DIR*);
 }
 else version (CRuntime_UClibc)
 {

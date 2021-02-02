@@ -11,6 +11,7 @@
 
 module core.sys.windows.stacktrace;
 version (Windows):
+@system:
 
 import core.demangle;
 import core.runtime;
@@ -265,11 +266,6 @@ private:
         // do ... while so that we don't skip the first stackframe
         do
         {
-            if ( stackframe.AddrPC.Offset == stackframe.AddrReturn.Offset )
-            {
-                debug(PRINTF) printf("Endless callstack\n");
-                break;
-            }
             if (frameNum >= skip)
             {
                 result ~= stackframe.AddrPC.Offset;
@@ -304,41 +300,38 @@ private:
         StackFrameInfo[] trace;
         foreach (pc; addresses)
         {
-            if ( pc != 0 )
+            StackFrameInfo frameInfo;
+            frameInfo.address = cast(void*)pc;
+
+            if (dbghelp.SymGetSymFromAddr64(hProcess, pc, null, symbol) &&
+                *symbol.Name.ptr)
             {
-                StackFrameInfo frameInfo;
-                frameInfo.address = cast(void*)pc;
-
-                if (dbghelp.SymGetSymFromAddr64(hProcess, pc, null, symbol) &&
-                    *symbol.Name.ptr)
+                // Demangle the symbol name
+                char[2048] demangleBuf = void;
+                const(char)[] tempSymName = symbol.Name.ptr[0 .. strlen(symbol.Name.ptr)];
+                //Deal with dmd mangling of long names
+                version (CRuntime_DigitalMars)
                 {
-                    // Demangle the symbol name
-                    char[2048] demangleBuf = void;
-                    const(char)[] tempSymName = symbol.Name.ptr[0 .. strlen(symbol.Name.ptr)];
-                    //Deal with dmd mangling of long names
-                    version (CRuntime_DigitalMars)
-                    {
-                        size_t decodeIndex = 0;
-                        tempSymName = decodeDmdString(tempSymName, decodeIndex);
-                    }
-                    char[] demangledName = demangle(tempSymName, demangleBuf);
-
-                    // Store it in the frameinfo struct
-                    frameInfo.symbolName = demangledName.dup;
-
-                    DWORD disp;
-                    IMAGEHLP_LINEA64 line=void;
-                    line.SizeOfStruct = IMAGEHLP_LINEA64.sizeof;
-
-                    if (dbghelp.SymGetLineFromAddr64(hProcess, pc, &disp, &line))
-                    {
-                        frameInfo.filename = line.FileName.fromStringz().dup;
-                        frameInfo.lineNumber = line.LineNumber;
-                    }
+                    size_t decodeIndex = 0;
+                    tempSymName = decodeDmdString(tempSymName, decodeIndex);
                 }
+                char[] demangledName = demangle(tempSymName, demangleBuf);
 
-                trace ~= frameInfo;
+                // Store it in the frameinfo struct
+                frameInfo.symbolName = demangledName.dup;
+
+                DWORD disp;
+                IMAGEHLP_LINEA64 line=void;
+                line.SizeOfStruct = IMAGEHLP_LINEA64.sizeof;
+
+                if (dbghelp.SymGetLineFromAddr64(hProcess, pc, &disp, &line))
+                {
+                    frameInfo.filename = line.FileName.fromStringz().dup;
+                    frameInfo.lineNumber = line.LineNumber;
+                }
             }
+
+            trace ~= frameInfo;
         }
         return trace;
     }

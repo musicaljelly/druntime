@@ -15,7 +15,6 @@ public import core.sys.posix.sys.types; // for time_t
 public import core.sys.posix.signal;    // for sigset_t
 
 //debug=select;  // uncomment to turn on debugging printf's
-version (unittest) import core.stdc.stdio: printf;
 
 version (OSX)
     version = Darwin;
@@ -28,6 +27,7 @@ else version (WatchOS)
 
 version (Posix):
 extern (C) nothrow @nogc:
+@system:
 
 //
 // Required
@@ -560,6 +560,8 @@ else
 
 pure unittest
 {
+    import core.stdc.stdio: printf;
+
     debug(select) printf("core.sys.posix.sys.select unittest\n");
 
     fd_set fd;

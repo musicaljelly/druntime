@@ -27,9 +27,10 @@ nothrow:
         removeAll();
     }
 
-    void initialize()
+    void initialize(ulong randSeed)
     {
-        rand48.defaultSeed();
+        Rand _rand = { randSeed };
+        rand = _rand;
     }
 
     void insert(E element) @nogc
@@ -52,7 +53,7 @@ nothrow:
         return opApplyHelper(root, dg);
     }
 
-    version (unittest)
+    version (CoreUnittest)
     bool opEquals(E[] elements)
     {
         size_t i;
@@ -72,7 +73,7 @@ nothrow:
         root = null;
     }
 
-    version (unittest)
+    version (CoreUnittest)
     bool valid()
     {
         return valid(root);
@@ -108,13 +109,13 @@ nothrow:
 
 private:
     Node* root;
-    Rand48 rand48;
+    Rand rand;
 
     Node* allocNode(E element) @nogc
     {
         Node* node = cast(Node*)common.xmalloc(Node.sizeof);
         node.left = node.right = null;
-        node.priority = rand48();
+        node.priority = rand();
         node.element = element;
         return node;
     }
@@ -224,7 +225,7 @@ static:
         return opApplyHelper(node.right, dg);
     }
 
-    version (unittest)
+    version (CoreUnittest)
     bool valid(Node* node)
     {
         if (!node)
@@ -262,8 +263,8 @@ unittest
     OP[] ops;
     uint[] opdata;
 
-    treap.initialize();
     srand(cast(uint)time(null));
+    treap.initialize(rand());
 
     uint[] data;
 initialLoop:
