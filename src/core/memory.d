@@ -408,7 +408,7 @@ struct GC
      */
     static uint getAttr( const scope void* p ) nothrow
     {
-        return getAttr(cast()p);
+        return gc_getAttr(cast(void*) p);
     }
 
 
@@ -435,7 +435,7 @@ struct GC
      */
     static uint setAttr( const scope void* p, uint a ) nothrow
     {
-        return setAttr(cast()p, a);
+        return gc_setAttr(cast(void*) p, a);
     }
 
 
@@ -462,7 +462,7 @@ struct GC
      */
     static uint clrAttr( const scope void* p, uint a ) nothrow
     {
-        return clrAttr(cast()p, a);
+        return gc_clrAttr(cast(void*) p, a);
     }
 
 
@@ -1038,8 +1038,13 @@ struct GC
         GC.runFinalizers((cast(const void*)typeid(Resource).destructor)[0..1]);
         assert(Resource.outcome == Outcome.calledFromDruntime);
         Resource.outcome = Outcome.notCalled;
-        r.destroy;
-        assert(Resource.outcome == Outcome.notCalled);
+
+        debug(MEMSTOMP) {} else
+        {
+            // assume Resource data is still available
+            r.destroy;
+            assert(Resource.outcome == Outcome.notCalled);
+        }
 
         r = new Resource;
         assert(Resource.outcome == Outcome.notCalled);
@@ -1547,4 +1552,69 @@ unittest
     GC.collect();
     auto nstats = GC.profileStats();
     assert(nstats.numCollections > stats.numCollections);
+}
+
+// in rt.lifetime:
+private extern (C) void* _d_newitemU(in TypeInfo _ti) @system pure nothrow;
+
+/**
+Moves a value to a new GC allocation.
+
+Params:
+    value = Value to be moved. If the argument is an lvalue and a struct with a
+            destructor or postblit, it will be reset to its `.init` value.
+
+Returns:
+    A pointer to the new GC-allocated value.
+*/
+T* moveToGC(T)(auto ref T value)
+{
+    static T* doIt(ref T value) @trusted
+    {
+        import core.lifetime : moveEmplace;
+        auto mem = cast(T*) _d_newitemU(typeid(T)); // allocate but don't initialize
+        moveEmplace(value, *mem);
+        return mem;
+    }
+
+    return doIt(value); // T dtor might be @system
+}
+
+///
+@safe pure nothrow unittest
+{
+    struct S
+    {
+        int x;
+        this(this) @disable;
+        ~this() @safe pure nothrow @nogc {}
+    }
+
+    S* p;
+
+    // rvalue
+    p = moveToGC(S(123));
+    assert(p.x == 123);
+
+    // lvalue
+    auto lval = S(456);
+    p = moveToGC(lval);
+    assert(p.x == 456);
+    assert(lval.x == 0);
+}
+
+// @system dtor
+unittest
+{
+    struct S
+    {
+        int x;
+        ~this() @system {}
+    }
+
+    // lvalue case is @safe, ref param isn't destructed
+    static assert(__traits(compiles, (ref S lval) @safe { moveToGC(lval); }));
+
+    // rvalue case is @system, value param is destructed
+    static assert(!__traits(compiles, () @safe { moveToGC(S(0)); }));
 }

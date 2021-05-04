@@ -196,7 +196,7 @@ T atomicFetchSub(MemoryOrder ms = MemoryOrder.seq, T)(ref T val, size_t mod) pur
 in (atomicValueIsProperlyAligned(val))
 {
     static if (is(T == U*, U))
-        return cast(T)core.internal.atomic.atomicFetchAdd!ms(cast(size_t*)&val, mod * U.sizeof);
+        return cast(T)core.internal.atomic.atomicFetchSub!ms(cast(size_t*)&val, mod * U.sizeof);
     else
         return core.internal.atomic.atomicFetchSub!ms(&val, cast(T)mod);
 }
@@ -267,10 +267,11 @@ in (atomicPtrIsProperlyAligned(here), "Argument `here` is not properly aligned")
  * Performs either compare-and-set or compare-and-swap (or exchange).
  *
  * There are two categories of overloads in this template:
- * the first one does a simple compare-and-set, and returns a boolean if the
- * operation happened. The value this is written (`writeThis`) can be an rvalue.
- * the second category does a compare-and-swap, or compare-and-exchange,
- * and expects `writeThis` to be a pointer type, where the previous value
+ * The first category does a simple compare-and-set.
+ * The comparison value (`ifThis`) is treated as an rvalue.
+ *
+ * The second category does a compare-and-swap (a.k.a. compare-and-exchange),
+ * and expects `ifThis` to be a pointer type, where the previous value
  * of `here` will be written.
  *
  * This operation is both lock-free and atomic.
@@ -1060,6 +1061,13 @@ version (CoreUnittest)
         }
     }
 
+    @betterC pure nothrow @nogc @safe unittest
+    {
+        int a;
+        if (casWeak!(MemoryOrder.acq_rel, MemoryOrder.raw)(&a, 0, 4))
+            assert(a == 4);
+    }
+
     @betterC pure nothrow unittest
     {
         static struct S { int val; }
@@ -1142,6 +1150,29 @@ version (CoreUnittest)
         }
     }
 
+    @betterC pure nothrow @nogc unittest
+    {
+        byte[10] byteArray = [1, 3, 5, 7, 9, 11, 13, 15, 17, 19];
+        ulong[10] ulongArray = [2, 4, 6, 8, 10, 12, 14, 16, 19, 20];
+
+        {
+            auto array = byteArray;
+            byte* ptr = &array[0];
+            byte* prevPtr = atomicFetchAdd(ptr, 3);
+            assert(prevPtr == &array[0]);
+            assert(*prevPtr == 1);
+            assert(*ptr == 7);
+        }
+        {
+            auto array = ulongArray;
+            ulong* ptr = &array[0];
+            ulong* prevPtr = atomicFetchAdd(ptr, 3);
+            assert(prevPtr == &array[0]);
+            assert(*prevPtr == 2);
+            assert(*ptr == 8);
+        }
+    }
+
     @betterC pure nothrow @nogc @safe unittest
     {
         shared ubyte u8 = 1;
@@ -1163,6 +1194,29 @@ version (CoreUnittest)
             shared long i64 = 8;
             assert(atomicOp!"-="(u64, 1) == 3);
             assert(atomicOp!"-="(i64, 1) == 7);
+        }
+    }
+
+    @betterC pure nothrow @nogc unittest
+    {
+        byte[10] byteArray = [1, 3, 5, 7, 9, 11, 13, 15, 17, 19];
+        ulong[10] ulongArray = [2, 4, 6, 8, 10, 12, 14, 16, 19, 20];
+
+        {
+            auto array = byteArray;
+            byte* ptr = &array[5];
+            byte* prevPtr = atomicFetchSub(ptr, 4);
+            assert(prevPtr == &array[5]);
+            assert(*prevPtr == 11);
+            assert(*ptr == 3); // https://issues.dlang.org/show_bug.cgi?id=21578
+        }
+        {
+            auto array = ulongArray;
+            ulong* ptr = &array[5];
+            ulong* prevPtr = atomicFetchSub(ptr, 4);
+            assert(prevPtr == &array[5]);
+            assert(*prevPtr == 12);
+            assert(*ptr == 4); // https://issues.dlang.org/show_bug.cgi?id=21578
         }
     }
 

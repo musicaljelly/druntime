@@ -15,8 +15,8 @@
  */
 module core.sys.posix.sys.types;
 
-private import core.sys.posix.config;
-private import core.stdc.stdint;
+import core.sys.posix.config;
+import core.stdc.stdint;
 public import core.stdc.stddef;
 
 version (OSX)
@@ -192,14 +192,27 @@ else version (Darwin)
 }
 else version (FreeBSD)
 {
+    import core.sys.freebsd.config;
+
     // https://github.com/freebsd/freebsd/blob/master/sys/sys/_types.h
     alias long      blkcnt_t;
     alias uint      blksize_t;
-    alias uint      dev_t;
+
+    static if (__FreeBSD_version >= 1200000)
+    {
+        alias ulong dev_t;
+        alias ulong ino_t;
+        alias ulong nlink_t;
+    }
+    else
+    {
+        alias uint   dev_t;
+        alias uint   ino_t;
+        alias ushort nlink_t;
+    }
+
     alias uint      gid_t;
-    alias uint      ino_t;
     alias ushort    mode_t;
-    alias ushort    nlink_t;
     alias long      off_t;
     alias int       pid_t;
     //size_t (defined in core.stdc.stddef)
@@ -1090,7 +1103,14 @@ else version (DragonFlyBSD)
     alias void* pthread_key_t;
     alias void* pthread_mutex_t;
     alias void* pthread_mutexattr_t;
-    alias void* pthread_once_t;
+
+    private struct pthread_once
+    {
+        int state;
+        pthread_mutex_t mutex;
+    }
+    alias pthread_once pthread_once_t;
+
     alias void* pthread_rwlock_t;
     alias void* pthread_rwlockattr_t;
     alias void* pthread_t;

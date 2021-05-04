@@ -1,5 +1,7 @@
 module core.lifetime;
 
+import core.internal.attributes : betterC;
+
 // emplace
 /**
 Given a pointer `chunk` to uninitialized memory (but already typed
@@ -17,6 +19,7 @@ T* emplace(T)(T* chunk) @safe pure nothrow
 }
 
 ///
+@betterC
 @system unittest
 {
     static struct S
@@ -63,6 +66,7 @@ T* emplace(T, Args...)(T* chunk, auto ref Args args)
 }
 
 ///
+@betterC
 @system unittest
 {
     int a;
@@ -70,6 +74,7 @@ T* emplace(T, Args...)(T* chunk, auto ref Args args)
     assert(*emplace!int(&a, b) == 42);
 }
 
+@betterC
 @system unittest
 {
     shared int i;
@@ -121,11 +126,11 @@ T emplace(T, Args...)(T chunk, auto ref Args args)
     else alias args1 = args;
 
     // Call the ctor if any
-    static if (is(typeof(chunk.__ctor(args1))))
+    static if (is(typeof(chunk.__ctor(forward!args1))))
     {
         // T defines a genuine constructor accepting args
         // Go the classic route: write .init first, then call ctor
-        chunk.__ctor(args1);
+        chunk.__ctor(forward!args1);
     }
     else
     {
@@ -205,7 +210,7 @@ T emplace(T, Args...)(void[] chunk, auto ref Args args)
     import core.internal.traits : maxAlignment;
     enum classSize = __traits(classInstanceSize, T);
     testEmplaceChunk(chunk, classSize, maxAlignment!(void*, typeof(T.tupleof)));
-    return emplace!T(cast(T)(chunk.ptr), args);
+    return emplace!T(cast(T)(chunk.ptr), forward!args);
 }
 
 ///
@@ -241,22 +246,36 @@ T emplace(T, Args...)(void[] chunk, auto ref Args args)
 {
     static class __conv_EmplaceTestClass
     {
+        @nogc @safe pure nothrow:
         int i = 3;
-        this(int i) @nogc @safe pure nothrow
+        this(int i)
         {
-            assert(this.i == 3 && i == 5);
-            this.i = i;
+            assert(this.i == 3);
+            this.i = 10 + i;
         }
-        this(int i, ref int j) @nogc @safe pure nothrow
+        this(ref int i)
         {
-            assert(i == 5 && j == 6);
+            assert(this.i == 3);
+            this.i = 20 + i;
+        }
+        this(int i, ref int j)
+        {
+            assert(this.i == 3 && i == 5 && j == 6);
             this.i = i;
             ++j;
         }
     }
+
     int var = 6;
     align(__conv_EmplaceTestClass.alignof) ubyte[__traits(classInstanceSize, __conv_EmplaceTestClass)] buf;
     auto support = (() @trusted => cast(__conv_EmplaceTestClass)(buf.ptr))();
+
+    auto fromRval = emplace!__conv_EmplaceTestClass(support, 1);
+    assert(fromRval.i == 11);
+
+    auto fromLval = emplace!__conv_EmplaceTestClass(support, var);
+    assert(fromLval.i == 26);
+
     auto k = emplace!__conv_EmplaceTestClass(support, 5, var);
     assert(k.i == 5);
     assert(var == 7);
@@ -282,7 +301,7 @@ T* emplace(T, Args...)(void[] chunk, auto ref Args args)
     import core.internal.lifetime : emplaceRef;
 
     testEmplaceChunk(chunk, T.sizeof, T.alignof);
-    emplaceRef!(T, Unqual!T)(*cast(Unqual!T*) chunk.ptr, args);
+    emplaceRef!(T, Unqual!T)(*cast(Unqual!T*) chunk.ptr, forward!args);
     return cast(T*) chunk.ptr;
 }
 
@@ -303,6 +322,7 @@ T* emplace(T, Args...)(void[] chunk, auto ref Args args)
 
 // Bulk of emplace unittests starts here
 
+@betterC
 @system unittest /* unions */
 {
     static union U
@@ -334,6 +354,7 @@ T* emplace(T, Args...)(void[] chunk, auto ref Args args)
     static assert( is(typeof(emplace!Bar(memory))));
 }
 
+@betterC
 @system unittest
 {
     struct S { @disable this(); }
@@ -342,6 +363,7 @@ T* emplace(T, Args...)(void[] chunk, auto ref Args args)
     emplace(&s, S.init);
 }
 
+@betterC
 @system unittest
 {
     struct S1
@@ -492,6 +514,7 @@ T* emplace(T, Args...)(void[] chunk, auto ref Args args)
 }
 
 // Test matching fields branch
+@betterC
 @system unittest
 {
     struct S { uint n; }
@@ -500,6 +523,7 @@ T* emplace(T, Args...)(void[] chunk, auto ref Args args)
     assert(s.n == 2);
 }
 
+@betterC
 @safe unittest
 {
     struct S { int a, b; this(int){} }
@@ -507,6 +531,7 @@ T* emplace(T, Args...)(void[] chunk, auto ref Args args)
     static assert(!__traits(compiles, emplace!S(&s, 2, 3)));
 }
 
+@betterC
 @system unittest
 {
     struct S { int a, b = 7; }
@@ -520,6 +545,7 @@ T* emplace(T, Args...)(void[] chunk, auto ref Args args)
 }
 
 //opAssign
+@betterC
 @system unittest
 {
     static struct S
@@ -538,6 +564,7 @@ T* emplace(T, Args...)(void[] chunk, auto ref Args args)
 }
 
 //postblit precedence
+@betterC
 @system unittest
 {
     //Works, but breaks in "-w -O" because of @@@9332@@@.
@@ -597,6 +624,7 @@ T* emplace(T, Args...)(void[] chunk, auto ref Args args)
 }
 
 //disabled postblit
+@betterC
 @system unittest
 {
     static struct S1
@@ -617,7 +645,7 @@ T* emplace(T, Args...)(void[] chunk, auto ref Args args)
         this(ref S2){}
     }
     S2 s2 = void;
-    static assert(!__traits(compiles, emplace(&s2, 1)));
+    //static assert(!__traits(compiles, emplace(&s2, 1)));
     emplace(&s2, S2.init);
 
     static struct SS1
@@ -647,6 +675,7 @@ T* emplace(T, Args...)(void[] chunk, auto ref Args args)
 }
 
 //Imutability
+@betterC
 @system unittest
 {
     //Castable immutability
@@ -674,6 +703,7 @@ T* emplace(T, Args...)(void[] chunk, auto ref Args args)
     }
 }
 
+@betterC
 @system unittest
 {
     static struct S
@@ -717,6 +747,7 @@ T* emplace(T, Args...)(void[] chunk, auto ref Args args)
 }
 
 //Alias this
+@betterC
 @system unittest
 {
     static struct S
@@ -800,6 +831,7 @@ version (CoreUnittest)
 }
 
 //safety & nothrow & CTFE
+@betterC
 @system unittest
 {
     //emplace should be safe for anything with no elaborate opassign
@@ -856,7 +888,7 @@ version (CoreUnittest)
     assert(cc.i == 5);
 }
 
-
+@betterC
 @system unittest
 {
     struct S
@@ -882,6 +914,7 @@ version (CoreUnittest)
 }
 
 //disable opAssign
+@betterC
 @system unittest
 {
     static struct S
@@ -893,6 +926,7 @@ version (CoreUnittest)
 }
 
 //opCall
+@betterC
 @system unittest
 {
     int i;
@@ -930,51 +964,6 @@ version (CoreUnittest)
         emplace(&s, S3.init);
     }
 }
-
-/+ these tests can't be performed in druntime, but a mirror still exists in phobos...
-@safe unittest //@@@9559@@@
-{
-    import std.algorithm.iteration : map;
-    import std.array : array;
-    import std.typecons : Nullable;
-    alias I = Nullable!int;
-    auto ints = [0, 1, 2].map!(i => i & 1 ? I.init : I(i))();
-    auto asArray = array(ints);
-}
-@system unittest //http://forum.dlang.org/post/nxbdgtdlmwscocbiypjs@forum.dlang.org
-{
-    import std.array : array;
-    import std.datetime : SysTime, UTC;
-    import std.math : isNaN;
-    static struct A
-    {
-        double i;
-    }
-    static struct B
-    {
-        invariant()
-        {
-            if (j == 0)
-                assert(a.i.isNaN(), "why is 'j' zero?? and i is not NaN?");
-            else
-                assert(!a.i.isNaN());
-        }
-        SysTime when; // comment this line avoid the breakage
-        int j;
-        A a;
-    }
-    B b1 = B.init;
-    assert(&b1); // verify that default eyes invariants are ok;
-    auto b2 = B(SysTime(0, UTC()), 1, A(1));
-    assert(&b2);
-    auto b3 = B(SysTime(0, UTC()), 1, A(1));
-    assert(&b3);
-    auto arr = [b2, b3];
-    assert(arr[0].j == 1);
-    assert(arr[1].j == 1);
-    auto a2 = arr.array(); // << bang, invariant is raised, also if b2 and b3 are good
-}
-+/
 
 //static arrays
 @system unittest
@@ -1104,6 +1093,7 @@ version (CoreUnittest)
     emplaceRef!(IS[2])(ss, iss[]);
 }
 
+@betterC
 pure nothrow @safe @nogc unittest
 {
     import core.internal.lifetime : emplaceRef;
@@ -1195,6 +1185,7 @@ pure nothrow @safe /* @nogc */ unittest
 }
 
 //constructor arguments forwarding
+@betterC
 @system unittest
 {
     static struct S
@@ -1216,6 +1207,302 @@ pure nothrow @safe /* @nogc */ unittest
     emplace(&obj, 0.0); // rvalue
 }
 // Bulk of emplace unittests ends here
+
+/**
+ * Emplaces a copy of the specified source value into uninitialized memory,
+ * i.e., simulates `T target = source` copy-construction for cases where the
+ * target memory is already allocated and to be initialized with a copy.
+ *
+ * Params:
+ *   source = value to be copied into target
+ *   target = uninitialized value to be initialized with a copy of source
+ */
+void copyEmplace(S, T)(ref S source, ref T target) @system
+    if (is(immutable S == immutable T))
+{
+    import core.internal.traits : BaseElemOf, hasElaborateCopyConstructor, Unconst, Unqual;
+
+    // cannot have the following as simple template constraint due to nested-struct special case...
+    static if (!__traits(compiles, (ref S src) { T tgt = src; }))
+    {
+        alias B = BaseElemOf!T;
+        enum isNestedStruct = is(B == struct) && __traits(isNested, B);
+        static assert(isNestedStruct, "cannot copy-construct " ~ T.stringof ~ " from " ~ S.stringof);
+    }
+
+    void blit()
+    {
+        import core.stdc.string : memcpy;
+        memcpy(cast(Unqual!(T)*) &target, cast(Unqual!(T)*) &source, T.sizeof);
+    }
+
+    static if (is(T == struct))
+    {
+        static if (__traits(hasPostblit, T))
+        {
+            blit();
+            (cast() target).__xpostblit();
+        }
+        else static if (__traits(hasCopyConstructor, T))
+        {
+            emplace(cast(Unqual!(T)*) &target); // blit T.init
+            static if (__traits(isNested, T))
+            {
+                 // copy context pointer
+                *(cast(void**) &target.tupleof[$-1]) = cast(void*) source.tupleof[$-1];
+            }
+            target.__ctor(source); // invoke copy ctor
+        }
+        else
+        {
+            blit(); // no opAssign
+        }
+    }
+    else static if (is(T == E[n], E, size_t n))
+    {
+        static if (hasElaborateCopyConstructor!E)
+        {
+            size_t i;
+            try
+            {
+                for (i = 0; i < n; i++)
+                    copyEmplace(source[i], target[i]);
+            }
+            catch (Exception e)
+            {
+                // destroy, in reverse order, what we've constructed so far
+                while (i--)
+                    destroy(*cast(Unconst!(E)*) &target[i]);
+                throw e;
+            }
+        }
+        else // trivial copy
+        {
+            blit(); // all elements at once
+        }
+    }
+    else
+    {
+        *cast(Unconst!(T)*) &target = *cast(Unconst!(T)*) &source;
+    }
+}
+
+///
+@betterC
+@system pure nothrow @nogc unittest
+{
+    int source = 123;
+    int target = void;
+    copyEmplace(source, target);
+    assert(target == 123);
+}
+
+///
+@betterC
+@system pure nothrow @nogc unittest
+{
+    immutable int[1][1] source = [ [123] ];
+    immutable int[1][1] target = void;
+    copyEmplace(source, target);
+    assert(target[0][0] == 123);
+}
+
+///
+@betterC
+@system pure nothrow @nogc unittest
+{
+    struct S
+    {
+        int x;
+        void opAssign(const scope ref S rhs) @safe pure nothrow @nogc
+        {
+            assert(0);
+        }
+    }
+
+    S source = S(42);
+    S target = void;
+    copyEmplace(source, target);
+    assert(target.x == 42);
+}
+
+// preserve shared-ness
+@system pure nothrow unittest
+{
+    auto s = new Object();
+    auto ss = new shared Object();
+
+    Object t;
+    shared Object st;
+
+    copyEmplace(s, t);
+    assert(t is s);
+
+    copyEmplace(ss, st);
+    assert(st is ss);
+
+    static assert(!__traits(compiles, copyEmplace(s, st)));
+    static assert(!__traits(compiles, copyEmplace(ss, t)));
+}
+
+version (DigitalMars) version (X86) version (Posix) version = DMD_X86_Posix;
+
+// don't violate immutability for reference types
+@system pure nothrow unittest
+{
+    auto s = new Object();
+    auto si = new immutable Object();
+
+    Object t;
+    immutable Object ti;
+
+    copyEmplace(s, t);
+    assert(t is s);
+
+    copyEmplace(si, ti);
+    version (DMD_X86_Posix) { /* wrongly fails without -O */ } else
+        assert(ti is si);
+
+    static assert(!__traits(compiles, copyEmplace(s, ti)));
+    static assert(!__traits(compiles, copyEmplace(si, t)));
+}
+
+version (CoreUnittest)
+{
+    private void testCopyEmplace(S, T)(const scope T* expected = null)
+    {
+        S source;
+        T target = void;
+        copyEmplace(source, target);
+        if (expected)
+            assert(target == *expected);
+        else
+        {
+            T expectedCopy = source;
+            assert(target == expectedCopy);
+        }
+    }
+}
+
+// postblit
+@system pure nothrow @nogc unittest
+{
+    static struct S
+    {
+        @safe pure nothrow @nogc:
+        int x = 42;
+        this(this) { x += 10; }
+    }
+
+    testCopyEmplace!(S, S)();
+    testCopyEmplace!(immutable S, S)();
+    testCopyEmplace!(S, immutable S)();
+    testCopyEmplace!(immutable S, immutable S)();
+
+    testCopyEmplace!(S[1], S[1])();
+    testCopyEmplace!(immutable S[1], S[1])();
+
+    // copying to an immutable static array works, but `T expected = source`
+    // wrongly ignores the postblit: https://issues.dlang.org/show_bug.cgi?id=8950
+    immutable S[1] expectedImmutable = [S(52)];
+    testCopyEmplace!(S[1], immutable S[1])(&expectedImmutable);
+    testCopyEmplace!(immutable S[1], immutable S[1])(&expectedImmutable);
+}
+
+// copy constructors
+@system pure nothrow @nogc unittest
+{
+    static struct S
+    {
+        @safe pure nothrow @nogc:
+        int x = 42;
+        this(int x) { this.x = x; }
+        this(const scope ref S rhs) { x = rhs.x + 10; }
+        this(const scope ref S rhs) immutable { x = rhs.x + 20; }
+    }
+
+    testCopyEmplace!(S, S)();
+    testCopyEmplace!(immutable S, S)();
+    testCopyEmplace!(S, immutable S)();
+    testCopyEmplace!(immutable S, immutable S)();
+
+    // static arrays work, but `T expected = source` wrongly ignores copy ctors
+    // https://issues.dlang.org/show_bug.cgi?id=20365
+    S[1] expectedMutable = [S(52)];
+    immutable S[1] expectedImmutable = [immutable S(62)];
+    testCopyEmplace!(S[1], S[1])(&expectedMutable);
+    testCopyEmplace!(immutable S[1], S[1])(&expectedMutable);
+    testCopyEmplace!(S[1], immutable S[1])(&expectedImmutable);
+    testCopyEmplace!(immutable S[1], immutable S[1])(&expectedImmutable);
+}
+
+// copy constructor in nested struct
+@system pure nothrow unittest
+{
+    int copies;
+    struct S
+    {
+        @safe pure nothrow @nogc:
+        size_t x = 42;
+        this(size_t x) { this.x = x; }
+        this(const scope ref S rhs)
+        {
+            assert(x == 42); // T.init
+            x = rhs.x;
+            ++copies;
+        }
+    }
+
+    {
+        copies = 0;
+        S source = S(123);
+        immutable S target = void;
+        copyEmplace(source, target);
+        assert(target is source);
+        assert(copies == 1);
+    }
+
+    {
+        copies = 0;
+        immutable S[1] source = [immutable S(456)];
+        S[1] target = void;
+        copyEmplace(source, target);
+        assert(target[0] is source[0]);
+        assert(copies == 1);
+    }
+}
+
+// destruction of partially copied static array
+@system unittest
+{
+    static struct S
+    {
+        __gshared int[] deletions;
+        int x;
+        this(this) { if (x == 5) throw new Exception(""); }
+        ~this() { deletions ~= x; }
+    }
+
+    alias T = immutable S[3][2];
+    T source = [ [S(1), S(2), S(3)], [S(4), S(5), S(6)] ];
+    T target = void;
+    try
+    {
+        copyEmplace(source, target);
+        assert(0);
+    }
+    catch (Exception)
+    {
+        static immutable expectedDeletions = [ 4, 3, 2, 1 ];
+        version (DigitalMars)
+        {
+            assert(S.deletions == expectedDeletions ||
+                   S.deletions == [ 4 ]); // FIXME: happens with -O
+        }
+        else
+            assert(S.deletions == expectedDeletions);
+    }
+}
 
 /**
 Forwards function arguments while keeping `out`, `ref`, and `lazy` on
@@ -1324,6 +1611,7 @@ template forward(args...)
     assert(baz(S(), makeS(), n, s) == "LLRRRL");
 }
 
+@betterC
 @safe unittest
 {
     ref int foo(return ref int a) { return a; }
@@ -1337,6 +1625,7 @@ template forward(args...)
 }
 
 ///
+@betterC
 @safe unittest
 {
     struct X {
@@ -1404,6 +1693,7 @@ template forward(args...)
 }
 
 // lazy -> lazy
+@betterC
 @safe unittest
 {
     int foo1(lazy int i) { return i; }
@@ -1416,6 +1706,7 @@ template forward(args...)
 }
 
 // lazy -> non-lazy
+@betterC
 @safe unittest
 {
     int foo1(int a, int b) { return a + b; }
@@ -1428,6 +1719,7 @@ template forward(args...)
 }
 
 // non-lazy -> lazy
+@betterC
 @safe unittest
 {
     int foo1(int a, lazy int b) { return a + b; }
@@ -1438,6 +1730,7 @@ template forward(args...)
 }
 
 // out
+@betterC
 @safe unittest
 {
     void foo1(int a, out int b) { b = a; }
@@ -1458,8 +1751,8 @@ to its `.init` value after it is moved into target, otherwise it is
 left unchanged.
 
 Preconditions:
-If source has internal pointers that point to itself, it cannot be moved, and
-will trigger an assertion failure.
+If source has internal pointers that point to itself and doesn't define
+opPostMove, it cannot be moved, and will trigger an assertion failure.
 
 Params:
     source = Data to copy.
@@ -1468,11 +1761,7 @@ Params:
 */
 void move(T)(ref T source, ref T target)
 {
-    // test @safe destructible
-    static if (__traits(compiles, (T t) @safe {}))
-        trustedMoveImpl(source, target);
-    else
-        moveImpl(source, target);
+    moveImpl(source, target);
 }
 
 /// For non-struct types, `move` just performs `target = source`:
@@ -1586,11 +1875,7 @@ pure nothrow @safe @nogc unittest
 /// Ditto
 T move(T)(return scope ref T source)
 {
-    // test @safe destructible
-    static if (__traits(compiles, (T t) @safe {}))
-        return trustedMoveImpl(source);
-    else
-        return moveImpl(source);
+    return moveImpl(source);
 }
 
 /// Non-copyable structs can still be moved:
@@ -1609,9 +1894,22 @@ pure nothrow @safe @nogc unittest
     assert(s2.a == 2);
 }
 
-private void trustedMoveImpl(T)(ref T source, ref T target) @trusted
+// https://issues.dlang.org/show_bug.cgi?id=20869
+// `move` should propagate the attributes of `opPostMove`
+@system unittest
 {
-    moveImpl(source, target);
+    static struct S
+    {
+        void opPostMove(const ref S old) nothrow @system
+        {
+            __gshared int i;
+            new int(i++); // Force @gc impure @system
+        }
+    }
+
+    alias T = void function() @system nothrow;
+    static assert(is(typeof({ S s; move(s); }) == T));
+    static assert(is(typeof({ S s; move(s, s); }) == T));
 }
 
 private void moveImpl(T)(ref T source, ref T target)
@@ -1620,23 +1918,28 @@ private void moveImpl(T)(ref T source, ref T target)
 
     static if (is(T == struct))
     {
-        if (&source == &target) return;
+        //  Unsafe when compiling without -dip1000
+        if ((() @trusted => &source == &target)()) return;
         // Destroy target before overwriting it
         static if (hasElaborateDestructor!T) target.__xdtor();
     }
     // move and emplace source into target
-    moveEmplace(source, target);
-}
-
-private T trustedMoveImpl(T)(ref T source) @trusted
-{
-    return moveImpl(source);
+    moveEmplaceImpl(source, target);
 }
 
 private T moveImpl(T)(ref T source)
 {
+    // Properly infer safety from moveEmplaceImpl as the implementation below
+    // might void-initialize pointers in result and hence needs to be @trusted
+    if (false) moveEmplaceImpl(source, source);
+
+    return trustedMoveImpl(source);
+}
+
+private T trustedMoveImpl(T)(ref T source) @trusted
+{
     T result = void;
-    moveEmplace(source, result);
+    moveEmplaceImpl(source, result);
     return result;
 }
 
@@ -1698,6 +2001,7 @@ private T moveImpl(T)(ref T source)
     assert(s53 is s51);
 }
 
+@betterC
 @system unittest
 {
     static struct S { int n = 0; ~this() @system { n = 0; } }
@@ -1719,6 +2023,7 @@ private T moveImpl(T)(ref T source)
     x = move(x);
 }
 +/
+@betterC
 @safe unittest// Issue 8055
 {
     static struct S
@@ -1775,16 +2080,7 @@ private T moveImpl(T)(ref T source)
     move(x, x);
 }
 
-/**
- * Similar to $(LREF move) but assumes `target` is uninitialized. This
- * is more efficient because `source` can be blitted over `target`
- * without destroying or initializing it first.
- *
- * Params:
- *   source = value to be moved into target
- *   target = uninitialized value to be filled by source
- */
-void moveEmplace(T)(ref T source, ref T target) @system
+private void moveEmplaceImpl(T)(ref T source, ref T target)
 {
     import core.stdc.string : memcpy, memset;
     import core.internal.traits;
@@ -1793,17 +2089,22 @@ void moveEmplace(T)(ref T source, ref T target) @system
 //    static if (!is(T == class) && hasAliasing!T) if (!__ctfe)
 //    {
 //        import std.exception : doesPointTo;
-//        assert(!doesPointTo(source, source), "Cannot move object with internal pointer.");
+//        assert(!doesPointTo(source, source) && !hasElaborateMove!T),
+//              "Cannot move object with internal pointer unless `opPostMove` is defined.");
 //    }
 
     static if (is(T == struct))
     {
-        assert(&source !is &target, "source and target must not be identical");
+        //  Unsafe when compiling without -dip1000
+        assert((() @trusted => &source !is &target)(), "source and target must not be identical");
 
         static if (hasElaborateAssign!T || !isAssignable!T)
-            memcpy(&target, &source, T.sizeof);
+            () @trusted { memcpy(&target, &source, T.sizeof); }();
         else
             target = source;
+
+        static if (hasElaborateMove!T)
+            __move_post_blt(target, source);
 
         // If the source defines a destructor or a postblit hook, we must obliterate the
         // object in order to avoid double freeing and undue aliasing
@@ -1816,11 +2117,11 @@ void moveEmplace(T)(ref T source, ref T target) @system
                 enum sz = T.sizeof;
 
             static if (__traits(isZeroInit, T))
-                memset(&source, 0, sz);
+                () @trusted { memset(&source, 0, sz); }();
             else
             {
                 auto init = typeid(T).initializer();
-                memcpy(&source, init.ptr, sz);
+                () @trusted { memcpy(&source, init.ptr, sz); }();
             }
         }
     }
@@ -1837,7 +2138,22 @@ void moveEmplace(T)(ref T source, ref T target) @system
     }
 }
 
+/**
+ * Similar to $(LREF move) but assumes `target` is uninitialized. This
+ * is more efficient because `source` can be blitted over `target`
+ * without destroying or initializing it first.
+ *
+ * Params:
+ *   source = value to be moved into target
+ *   target = uninitialized value to be filled by source
+ */
+void moveEmplace(T)(ref T source, ref T target) @system
+{
+    moveEmplaceImpl(source, target);
+}
+
 ///
+@betterC
 pure nothrow @nogc @system unittest
 {
     static struct Foo

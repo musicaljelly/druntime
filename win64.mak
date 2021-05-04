@@ -38,9 +38,9 @@ MAKE=W:\tools\DMmake.exe
 HOST_DMD=W:\external\DMD\windows\bin\dmd.exe
 
 # Removed release-specific flags, putting them below instead
-DFLAGS=-m$(MODEL) -conf= -dip1000 -preview=fieldwise -preview=dtorfields -w -Isrc -Iimport
+DFLAGS=-m$(MODEL) -conf= -dip1000 -preview=fieldwise -preview=dtorfields -transition=complex -w -Isrc -Iimport
 # !!!
-UDFLAGS=-m$(MODEL) -conf= -O -release -dip1000 -preview=fieldwise -w -version=_MSC_VER_$(_MSC_VER) -Isrc -Iimport
+UDFLAGS=-m$(MODEL) -conf= -O -release -dip1000 -preview=fieldwise -transition=complex -w -version=_MSC_VER_$(_MSC_VER) -Isrc -Iimport
 DDOCFLAGS=-conf= -c -w -o- -Isrc -Iimport -version=CoreDdoc
 
 UTFLAGS=-version=CoreUnittest -unittest -checkaction=context
@@ -58,7 +58,7 @@ CFLAGS=$(CFLAGS) /Zl
 
 DOCFMT=
 
-target : import copydir copy $(DRUNTIME)
+target: import copydir copy $(DRUNTIME)
 
 # !!!
 release : import copydir copy $(DRUNTIME)release
@@ -73,8 +73,8 @@ $(mak\SRCS)
 # NOTE: trace.d and cover.d are not necessary for a successful build
 #       as both are used for debugging features (profiling and coverage)
 
-OBJS= errno_c_$(MODEL).obj msvc_$(MODEL).obj msvc_math_$(MODEL).obj
-OBJS_TO_DELETE= errno_c_$(MODEL).obj msvc_$(MODEL).obj msvc_math_$(MODEL).obj
+OBJS= errno_c_$(MODEL).obj
+OBJS_TO_DELETE= errno_c_$(MODEL).obj
 
 ######################## Header file generation ##############################
 
@@ -89,14 +89,8 @@ copy:
 
 ################### C\ASM Targets ############################
 
-errno_c_$(MODEL).obj : src\core\stdc\errno.c
+errno_c_$(MODEL).obj: src\core\stdc\errno.c
 	"$(CC)" -c -Fo$@ $(CFLAGS) src\core\stdc\errno.c
-
-msvc_$(MODEL).obj : src\rt\msvc.c win64.mak
-	"$(CC)" -c -Fo$@ $(CFLAGS) src\rt\msvc.c
-
-msvc_math_$(MODEL).obj : src\rt\msvc_math.c win64.mak
-	"$(CC)" -c -Fo$@ $(CFLAGS) src\rt\msvc_math.c
 
 ################### Library generation #########################
 
@@ -109,9 +103,9 @@ $(DRUNTIME)debug: $(OBJS) $(SRCS) win64.mak
 # !!!
 
 # due to -conf= on the command line, LINKCMD and LIB need to be set in the environment
-unittest : $(SRCS) $(DRUNTIME)
+unittest: $(SRCS) $(DRUNTIME)
 	*"$(DMD)" $(UDFLAGS) -version=druntime_unittest $(UTFLAGS) -ofunittest.exe -main $(SRCS) $(DRUNTIME) -debuglib=$(DRUNTIME) -defaultlib=$(DRUNTIME) user32.lib
-	unittest
+	.\unittest.exe
 
 ################### Win32 COFF support #########################
 

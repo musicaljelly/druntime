@@ -14,8 +14,8 @@
  */
 module core.sys.posix.fcntl;
 
-private import core.sys.posix.config;
-private import core.stdc.stdint;
+import core.sys.posix.config;
+import core.stdc.stdint;
 public import core.sys.posix.sys.types; // for off_t, mode_t
 public import core.sys.posix.sys.stat;  // for S_IFMT, etc.
 
@@ -929,6 +929,10 @@ else version (CRuntime_Musl)
     int open(const scope char*, int, ...);
 
     enum AT_FDCWD = -100;
+    enum AT_SYMLINK_NOFOLLOW = 0x100;
+    enum AT_REMOVEDIR = 0x200;
+    enum AT_SYMLINK_FOLLOW = 0x400;
+    enum AT_EACCESS = 0x200;
 }
 else version (CRuntime_UClibc)
 {

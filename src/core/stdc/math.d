@@ -13,7 +13,7 @@
 
 module core.stdc.math;
 
-private import core.stdc.config;
+import core.stdc.config;
 
 version (OSX)
     version = Darwin;
@@ -1037,14 +1037,25 @@ else version (Darwin)
     // other Darwins
     version (OSX)
     {
-        pure int __fpclassify(real x);
-        pure int __isfinite(real x);
-        pure int __isinf(real x);
-        pure int __isnan(real x);
-        alias __fpclassifyl = __fpclassify;
-        alias __isfinitel = __isfinite;
-        alias __isinfl = __isinf;
-        alias __isnanl = __isnan;
+        version (AArch64)
+        {
+            // Available in macOS ARM
+            pure int __fpclassifyl(real x);
+            pure int __isfinitel(real x);
+            pure int __isinfl(real x);
+            pure int __isnanl(real x);
+        }
+        else
+        {
+            pure int __fpclassify(real x);
+            pure int __isfinite(real x);
+            pure int __isinf(real x);
+            pure int __isnan(real x);
+            alias __fpclassifyl = __fpclassify;
+            alias __isfinitel = __isfinite;
+            alias __isinfl = __isinf;
+            alias __isnanl = __isnan;
+        }
     }
     else
     {
