@@ -2,22 +2,28 @@
 
 MODEL=64
 
+# !!!
 # Visual Studio 2019
-#VCDIR=\Program Files (x86)\Microsoft Visual Studio\2019\Community\VC\Tools\MSVC\14.27.29110
-#SDKDIR=\Program Files (x86)\Windows Kits\10\Include\10.0.18362.0
+VCDIR=C:\Program Files (x86)\Microsoft Visual Studio\2019\Community\VC\Tools\MSVC\14.28.29910
+SDKDIR=C:\Program Files (x86)\Windows Kits\10\Include\10.0.18362.0
 # Visual Studio 2015 and before
-VCDIR=\Program Files (x86)\Microsoft Visual Studio 10.0\VC
-SDKDIR=\Program Files (x86)\Microsoft SDKs\Windows\v7.0A
+#VCDIR=\Program Files (x86)\Microsoft Visual Studio 10.0\VC
+#SDKDIR=\Program Files (x86)\Microsoft SDKs\Windows\v7.0A
+# !!!
 
 DMD_DIR=..\dmd
-BUILD=release
 OS=windows
-DMD=$(DMD_DIR)\generated\$(OS)\$(BUILD)\$(MODEL)\dmd
 
+# !!!
+DMD=W:\external\DMD\windows\bin\dmd.exe
+# !!!
+
+# !!!
 # Visual Studio 2017/2019
-#BINDIR=$(VCDIR)\bin\Hostx64\x64
+BINDIR=$(VCDIR)\bin\Hostx64\x64
 # Visual Studio 2015 and before
-BINDIR=$(VCDIR)\bin\amd64
+#BINDIR=$(VCDIR)\bin\amd64
+# !!!
 
 CC=$(BINDIR)\cl
 LD=$(BINDIR)\link
@@ -27,19 +33,22 @@ CP=cp
 DOCDIR=doc
 IMPDIR=import
 
-MAKE=make
-HOST_DMD=dmd
+# !!!
+MAKE=W:\tools\DMmake.exe
+HOST_DMD=W:\external\DMD\windows\bin\dmd.exe
 
-DFLAGS=-m$(MODEL) -conf= -O -release -dip1000 -preview=fieldwise -preview=dtorfields -inline -w -Isrc -Iimport
+# Removed release-specific flags, putting them below instead
+DFLAGS=-m$(MODEL) -conf= -dip1000 -preview=fieldwise -preview=dtorfields -w -Isrc -Iimport
+# !!!
 UDFLAGS=-m$(MODEL) -conf= -O -release -dip1000 -preview=fieldwise -w -version=_MSC_VER_$(_MSC_VER) -Isrc -Iimport
 DDOCFLAGS=-conf= -c -w -o- -Isrc -Iimport -version=CoreDdoc
 
 UTFLAGS=-version=CoreUnittest -unittest -checkaction=context
 
 #CFLAGS=/O2 /I"$(VCDIR)"\INCLUDE /I"$(SDKDIR)"\Include
-CFLAGS=/Z7 /I"$(VCDIR)"\INCLUDE /I"$(SDKDIR)"\Include
+#CFLAGS=/Z7 /I"$(VCDIR)"\INCLUDE /I"$(SDKDIR)"\Include
 # Visual Studio 2019
-#CFLAGS=/Z7 /I"$(VCDIR)"\include /I"$(SDKDIR)"\ucrt
+CFLAGS=/Z7 /I"$(VCDIR)"\include /I"$(SDKDIR)"\ucrt
 
 DRUNTIME_BASE=druntime$(MODEL)
 DRUNTIME=lib\$(DRUNTIME_BASE).lib
@@ -50,6 +59,11 @@ CFLAGS=$(CFLAGS) /Zl
 DOCFMT=
 
 target : import copydir copy $(DRUNTIME)
+
+# !!!
+release : import copydir copy $(DRUNTIME)release
+debug : import copydir copy $(DRUNTIME)debug
+# !!!
 
 $(mak\COPY)
 $(mak\DOCS)
@@ -86,8 +100,13 @@ msvc_math_$(MODEL).obj : src\rt\msvc_math.c win64.mak
 
 ################### Library generation #########################
 
-$(DRUNTIME): $(OBJS) $(SRCS) win64.mak
-	*"$(DMD)" -lib -of$(DRUNTIME) -Xfdruntime.json $(DFLAGS) $(SRCS) $(OBJS)
+# !!!
+$(DRUNTIME)release: $(OBJS) $(SRCS) win64.mak
+	*"$(DMD)" -lib -of$(DRUNTIME) -Xfdruntime.json $(DFLAGS) -O -release -inline $(SRCS) $(OBJS)
+    
+$(DRUNTIME)debug: $(OBJS) $(SRCS) win64.mak
+	*"$(DMD)" -lib -of$(DRUNTIME) -Xfdruntime.json $(DFLAGS) -g -gs -gf -debug=GameDebug $(SRCS) $(OBJS)
+# !!!
 
 # due to -conf= on the command line, LINKCMD and LIB need to be set in the environment
 unittest : $(SRCS) $(DRUNTIME)

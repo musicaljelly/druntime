@@ -4074,5 +4074,8 @@ const IID TID_D3DRMTimedFloatKeys = {0xF406B180, 0x7B3B, 0x11CF, [0x8F, 0x52, 0x
 const IID TID_D3DRMUrl = {0x3A23EEA1, 0x94B1, 0x11D0, [0xAB, 0x39, 0x00, 0x20, 0xAF, 0x71, 0xE4, 0x33]};
 const IID TID_D3DRMVector = {0x3D82AB5E, 0x62DA, 0x11CF, [0xAB, 0x39, 0x00, 0x20, 0xAF, 0x71, 0xE4, 0x33]};
 const IID TID_DXFILEHeader = {0x3D82AB43, 0x62DA, 0x11CF, [0xAB, 0x39, 0x00, 0x20, 0xAF, 0x71, 0xE4, 0x33]};
-const IID WKPDID_D3DDebugObjectName = {1117490210, 37256, 19212, [135, 66, 172, 176, 191, 133, 194, 0]};
-const IID WKPDID_D3DDebugObjectNameW = {1288331224, 37407, 17096, [133, 102, 112, 202, 242, 169, 183, 65]};
+// !!!
+// Commenting out so they don't conflict with the definitions we have in d3dcommon.d
+//const IID WKPDID_D3DDebugObjectName = {1117490210, 37256, 19212, [135, 66, 172, 176, 191, 133, 194, 0]};
+//const IID WKPDID_D3DDebugObjectNameW = {1288331224, 37407, 17096, [133, 102, 112, 202, 242, 169, 183, 65]};
+// !!!

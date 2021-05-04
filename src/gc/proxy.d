@@ -55,7 +55,7 @@ private
     // !!!
     
     pragma (inline, true) @trusted @nogc nothrow
-    GC instance() { return _instance; }
+    GC instance() { return *_instance; }
 }
 
 // NOTE: This whole proxy conceit only works because of polymorphic dispatch.
@@ -346,6 +346,7 @@ extern (C)
                 
                 if (allocatorStackTop > 0)
                 {
+                    import core.stdc.stdio : printf;
                     printf("Can only set the gc proxy when the allocator stack is empty");
                     asm {int 3;}
                 }
@@ -375,7 +376,7 @@ extern (C)
             // At this point we should be all the way at the bottom of the allocator stack, and our current allocator should be
             // the GC. So update the instance to the stored GC so we don't collect from main's GC while we tear down the DLL.
             // We assume nobody uses the allocator stack after this point.
-            _instance = proxiedGC;
+            _instance = &proxiedGC;
 
             proxiedGC = null;
             proxiedScrapheap = null;
@@ -428,7 +429,7 @@ extern (C)
             printf("We blew the allocator stack");
             asm {int 3;}
         }
-        instance = allocatorStack[allocatorStackTop];
+        _instance = allocatorStack[allocatorStackTop];
     }
 
     void StartScrapheapTempRegion()
@@ -453,7 +454,7 @@ extern (C)
                 asm {int 3;}
             }
             allocatorStack[allocatorStackTop] = gc;
-            instance = gc;
+            _instance = gc;
         }
     }
     // !!!

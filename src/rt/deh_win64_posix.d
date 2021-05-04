@@ -218,6 +218,14 @@ size_t __eh_find_caller(size_t regbp, size_t *pretaddr)
  * Throw a D object.
  */
 
+// !!!
+import core.sys.windows.windef : DWORD;
+extern(Windows)
+{
+    void RaiseException(DWORD, DWORD, DWORD, void*);
+}
+// !!!
+
 extern (C) void _d_throwc(Throwable h)
 {
     size_t regebp;
@@ -490,5 +498,29 @@ extern (C) void _d_throwc(Throwable h)
             }
         }
     }
+
+    // !!!
+    // D exceptions don't get caught by the VS debugger in win64, since D in win64 doesn't use the standard win64 exception
+    // mechanism, it uses a homegrown one adapted from linux.
+    // To circumvent this, I'll manually call RaiseException() here like deh_win32.d does to make things at least kind of work.
+    // Another option would be to just trigger an int3 here.
+    // This isn't necessary for LDC, which uses the normal C++ exception mechanism in win64.
+    // See https://forum.dlang.org/post/s689j6$de9$1@digitalmars.com
+    version (LDC) {}
+    else
+    {
+        debug (GameDebug)
+        {
+            template MAKE_EXCEPTION_CODE(int severity, int facility, int exception)
+            {
+                enum int MAKE_EXCEPTION_CODE = (((severity) << 30) | (1 << 29) | (0 << 28) | ((facility) << 16) | (exception));
+            }
+            enum int STATUS_DIGITAL_MARS_D_EXCEPTION = MAKE_EXCEPTION_CODE!(3,'D',1);
+            enum DWORD EXCEPTION_NONCONTINUABLE = 1;
+            RaiseException(STATUS_DIGITAL_MARS_D_EXCEPTION, EXCEPTION_NONCONTINUABLE, 1, cast(void*)&h);
+        }
+    }
+    // !!!
+
     terminate();
 }

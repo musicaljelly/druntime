@@ -267,18 +267,41 @@ TypeInfo_Struct fakeEntryTI(ref Impl aa, const TypeInfo keyti, const TypeInfo va
     immutable(size_t)* valinfo = void;
     if (aa.flags & Impl.Flags.hasPointers)
     {
-        // classes are references
-        keyinfo = cast(immutable(size_t)*) getRTInfo(keyti);
-        valinfo = cast(immutable(size_t)*) getRTInfo(valti);
-
-        if (keyinfo is rtinfoHasPointers && valinfo is rtinfoHasPointers)
+        // !!!
+        debug (GameDebug)
+        {
+            // To simplify making this all work with hotswapping, just assume we have pointers in both the key and the value,
+            // even if only one of them has pointers. Worst case the GC will keep something alive due to a false pointer.
             rtinfo = rtinfoHasPointers;
+        }
         else
-            rtisize = 1 + (aa.valoff + aa.valsz + pointersPerWord - 1) / pointersPerWord;
+        // !!!
+        {
+            // classes are references
+            keyinfo = cast(immutable(size_t)*) getRTInfo(keyti);
+            valinfo = cast(immutable(size_t)*) getRTInfo(valti);
+
+            if (keyinfo is rtinfoHasPointers && valinfo is rtinfoHasPointers)
+                rtinfo = rtinfoHasPointers;
+            else
+                rtisize = 1 + (aa.valoff + aa.valsz + pointersPerWord - 1) / pointersPerWord;
+        }
     }
     bool entryHasDtor = hasDtor(kti) || hasDtor(vti);
     if (rtisize == 0 && !entryHasDtor)
         return null;
+    // !!!
+    else debug (GameDebug)
+    {
+        import core.stdc.stdio : printf;
+        printf("We currently don't support AAs containing keys or values with destructors. "
+            ~ "If you really need this, you'll have to figure out how to get the below working in a way where all the data "
+            ~ "allocated isn't static and survives a hotswap. It's not trivial: the typeinfo contains function pointers that "
+            ~ "will need to be rebound, the typeinfo's vtable will need to be updated, we allocate extra data past the end "
+            ~ "of the typeinfo struct, and more. But it's probably simplest to just not use types in AAs that have destructors.");
+        asm {int 3;}
+    }
+    // !!!
 
     // save kti and vti after type info for struct
     enum sizeti = __traits(classInstanceSize, TypeInfo_Struct);

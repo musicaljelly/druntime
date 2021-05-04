@@ -358,6 +358,11 @@ class ScrapheapGC : GC
         return false;
     }
 
+    ulong allocatedInCurrentThread() nothrow
+    {
+        return true;
+    }
+
     void startTempRegion() nothrow
     {
         debug (GameDebug) if (tls_tempRegionBottom !is null)

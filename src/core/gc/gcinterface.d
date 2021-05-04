@@ -187,7 +187,7 @@ interface GC
     /*
      *
      */
-    bool inFinalizer() nothrow;
+    bool inFinalizer() nothrow @nogc @safe;
     
     /**
      * Returns the number of bytes allocated for the current thread

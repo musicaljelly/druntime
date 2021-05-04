@@ -9,7 +9,7 @@ DMD=W:\external\DMD\windows\bin\dmd.exe
 
 CC=W:\external\DigitalMars\bin\dmc.exe
 MAKE=W:\external\DigitalMars\bin\make.exe
-HOST_DMD=W:\external\DMD\windows\bin\dmd.exe
+HOST_DMD=C:\D\dmd2\windows\bin\dmd.exe
 # !!!
 
 DOCDIR=doc
