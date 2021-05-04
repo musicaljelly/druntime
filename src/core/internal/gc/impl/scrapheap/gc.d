@@ -5,8 +5,6 @@ module core.internal.gc.impl.scrapheap.gc;
 
 import core.gc.gcinterface;
 
-import rt.util.container.array;
-
 import cstdlib = core.stdc.stdlib : calloc, free, malloc, realloc;
 import core.stdc.string : memset, memcpy;
 static import core.memory;
